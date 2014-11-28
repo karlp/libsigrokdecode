@@ -40,7 +40,7 @@ class Modbus_ADU:
         ptype, rxtx, pdata = data
         self.last_read = message_end
         if ptype == 'DATA':
-            self.data.append(pdata[0])
+            self.data.append((pdata[0], message_end))
 
 
 class Decoder(srd.Decoder):
@@ -53,15 +53,21 @@ class Decoder(srd.Decoder):
     inputs = ['uart']
     outputs = ['modbus']
     annotations = (
-        ('text-verbose', 'Human-readable text (verbose)'),
+        ('rx_description', 'What is happening on the line configured as Rx'),
+        ('tx_description', 'What is happening on the line configured as Tx'),
     )
+    annotation_rows = (
+        ('rx', 'Rx data', (0,)),
+        ('tx', 'Tx data', (1,)),
+    )
+
 
     def __init__(self, **kwargs):
         self.set_empty_state()
 
     def set_empty_state(self):
-        self.state = 'IDLE'
-        self.ADU = None
+        self.ADURx = None
+        self.ADUTx = None
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
@@ -69,21 +75,30 @@ class Decoder(srd.Decoder):
     def decode(self, ss, es, data):
         ptype, rxtx, pdata = data
 
-        # for now, only look at channel TX
         if rxtx == TX:
+            self.decode_correct_ADU(ss, es, data, self.ADUTx)
+        if rxtx == RX:
+            self.decode_correct_ADU(ss, es, data, self.ADURx)
+
+    def decode_correct_ADU(self, ss, es, data, ADU):
+        ptype, rxtx, pdata = data
+
+        if ADU is None:
+            self.start_new_decode(ss, es, data)
             return
 
-        if self.state == 'IDLE':
-            self.state = 'READING'
-            self.ADU = Modbus_ADU(ss)
-
-        # At this point the state should be READING
-        if 0 <= (ss - self.ADU.last_read) <= Modbus_wait_max:
-            self.ADU.add_data(data, es)
+        if 0 <= (ss - ADU.last_read) <= Modbus_wait_max:
+            ADU.add_data(data, es)
         else:
-            self.end_ADU(self.ADU)
-            self.decode(ss, es, data)
+            self.put(ADU.start, ADU.last_read, self.out_ann, [rxtx, [ADU.message()]])
+            self.start_new_decode(ss, es, data)
 
-    def end_ADU(self, ADU):
-        self.put(ADU.start, ADU.last_read, self.out_ann, [0, [ADU.message()]])
-        self.set_empty_state()
+    def start_new_decode(self, ss, es, data):
+        ptype, rxtx, pdata = data
+
+        if rxtx == TX:
+            self.ADUTx = Modbus_ADU(ss)
+        if rxtx == RX:
+            self.ADURx = Modbus_ADU(ss)
+
+        self.decode(ss, es, data)
