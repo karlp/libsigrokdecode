@@ -21,6 +21,28 @@
 import sigrokdecode as srd
 
 
+RX = 0
+TX = 1
+Modbus_wait_max = 10
+
+
+class Modbus_ADU:
+    def __init__(self, start):
+        """Start new message, starting at start"""
+        self.data = []
+        self.start = start
+        self.last_read = start
+
+    def message(self):
+        return "Starts at {}, ends at {}".format(self.start, self.last_read)
+
+    def add_data(self, data, message_end):
+        ptype, rxtx, pdata = data
+        self.last_read = message_end
+        if ptype == 'DATA':
+            self.data.append(pdata[0])
+
+
 class Decoder(srd.Decoder):
     api_version = 2
     id = 'modbus'
@@ -34,42 +56,12 @@ class Decoder(srd.Decoder):
         ('text-verbose', 'Human-readable text (verbose)'),
     )
 
-    def decode_read_registers(self, data=1234321):
-        if data == 1234321:
-            print("no data supplied. Self: {}".format(self))
-        if self.byte == 2:
-            self.cd_function_data = {}
-        if self.byte == 3:
-            self.cd_function_data['address'] = data*256
-        if self.byte == 4:
-            self.cd_function_data['address'] += data
-        if self.byte == 5:
-            self.cd_function_data['bytes to read'] = data*256
-        if self.byte == 6:
-            self.cd_function_data['bytes to read'] += data
-        if self.byte == 7:
-            self.cd_function_data['checksum'] = data*256
-        if self.byte == 8:
-            self.cd_function_data['checksum'] += data
-            self.end_ADU("Read {} holding registers starting from {}".format(
-                self.cd_function_data['bytes to read'],
-                self.cd_function_data['address']))
-
     def __init__(self, **kwargs):
-        self.decoder_chooser = {
-            3: self.decode_read_registers,
-            }
-
         self.set_empty_state()
 
     def set_empty_state(self):
         self.state = 'IDLE'
-        self.es = None
-        self.start_of_ADU = None
-        self.server_id = None
-        self.cd_function = None  # Current Decoding function
-        self.cd_function_data = None
-        self.byte = None
+        self.ADU = None
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
@@ -77,32 +69,21 @@ class Decoder(srd.Decoder):
     def decode(self, ss, es, data):
         ptype, rxtx, pdata = data
 
-        # We don't care about stop and start bits
-        if ptype != 'DATA':
+        # for now, only look at channel TX
+        if rxtx == TX:
             return
 
-        data_as_byte = pdata[0]
-
-        self.es = es
-
         if self.state == 'IDLE':
-            self.server_id = data_as_byte
-            self.start_of_ADU = ss
-            self.state = 'WAITING FOR FUNCTION CODE'
-            self.byte = 1  # server id is 0, function code is 1
-        elif self.state == 'WAITING FOR FUNCTION CODE':
-            self.byte += 1
-            self.cd_function = self.decoder_chooser.get(data_as_byte, None)
+            self.state = 'READING'
+            self.ADU = Modbus_ADU(ss)
 
-            if self.cd_function is not None:
-                self.state = 'READING'
-                self.cd_function(data_as_byte)
-            else:
-                self.end_ADU("Bad format")
-        elif self.state == 'READING':
-            self.byte += 1
-            self.cd_function(data_as_byte)
+        # At this point the state should be READING
+        if 0 <= (ss - self.ADU.last_read) <= Modbus_wait_max:
+            self.ADU.add_data(data, es)
+        else:
+            self.end_ADU(self.ADU)
+            self.decode(ss, es, data)
 
-    def end_ADU(self, message):
-        self.put(self.start_of_ADU, self.es, self.out_ann, [0, [message]])
+    def end_ADU(self, ADU):
+        self.put(ADU.start, ADU.last_read, self.out_ann, [0, [ADU.message()]])
         self.set_empty_state()
