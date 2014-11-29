@@ -59,6 +59,9 @@ class Decoder(srd.Decoder):
         ('clk_missed', 'Clock missed', (1,)),
         ('sig_missed', 'Signal missed', (2,)),
     )
+    binary = (
+        ('ascii-float', 'Jitter values as newline-separated ASCII floats'),
+    )
 
     def __init__(self, **kwargs):
         self.state = 'CLK'
@@ -74,6 +77,7 @@ class Decoder(srd.Decoder):
         self.clk_edge = edge_detector[self.options['clk_polarity']]
         self.sig_edge = edge_detector[self.options['sig_polarity']]
         self.out_ann = self.register(srd.OUTPUT_ANN)
+        self.out_bin = self.register(srd.OUTPUT_BINARY)
         self.out_clk_missed = self.register(srd.OUTPUT_META,
             meta=(int, 'Clock missed', 'Clock transition missed'))
         self.out_sig_missed = self.register(srd.OUTPUT_META,
@@ -101,6 +105,15 @@ class Decoder(srd.Decoder):
 
         self.put(self.clk_start, self.sig_start, self.out_ann, [0, [delta_s]])
 
+    # Helper function for ASCII float jitter values (one value per line).
+    def putb(self, delta):
+        if delta is None:
+            return
+        # Format the delta to an ASCII float value terminated by a newline.
+        x = str(delta) + '\n'
+        self.put(self.clk_start, self.sig_start, self.out_bin,
+                 (0, x.encode('UTF-8')))
+
     # Helper function for missed clock and signal annotations.
     def putm(self, data):
         self.put(self.samplenum, self.samplenum, self.out_ann, data)
@@ -125,7 +138,7 @@ class Decoder(srd.Decoder):
                 # occurs while we are waiting for a clock,
                 # we increase the missed signal counter.
                 self.sig_missed += 1
-                self.put(ss, self.samplenum, self.out_sig_missed, self.sig_missed)
+                self.put(self.samplenum, self.samplenum, self.out_sig_missed, self.sig_missed)
                 self.putm([2, ['Missed signal', 'MS']])
             # No clock edge found, we have done everything we
             # can with this sample.
@@ -144,7 +157,9 @@ class Decoder(srd.Decoder):
             self.sig_start = self.samplenum
             self.state = 'CLK'
             # Calculate and report the timing jitter.
-            self.putx((self.sig_start - self.clk_start) / self.samplerate)
+            delta = (self.sig_start - self.clk_start) / self.samplerate
+            self.putx(delta)
+            self.putb(delta)
             return False
         else:
             if self.clk_start != self.samplenum \
@@ -153,7 +168,7 @@ class Decoder(srd.Decoder):
                 # occurs while we are waiting for a resulting
                 # signal, we increase the missed clock counter.
                 self.clk_missed += 1
-                self.put(ss, self.samplenum, self.out_clk_missed, self.clk_missed)
+                self.put(self.samplenum, self.samplenum, self.out_clk_missed, self.clk_missed)
                 self.putm([1, ['Missed clock', 'MC']])
             # No resulting signal edge found, we have done
             # everything we can with this sample.
