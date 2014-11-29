@@ -1,46 +1,72 @@
-#
-# This file is part of the libsigrokdecode project.
-#
-# Copyright (C) 2013 Uwe Hermann <uwe@hermann-uwe.de>
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
-#
-
 import sigrokdecode as srd
 
 
 RX = 0
 TX = 1
-Modbus_wait_max = 10
+Modbus_wait_max = 30
 
 
 class Modbus_ADU:
-    def __init__(self, start):
+    def __init__(self, parent, start, write_channel):
         """Start new message, starting at start"""
         self.data = []
+        self.parent = parent
         self.start = start
         self.last_read = start
-
-    def message(self):
-        return "Starts at {}, ends at {}".format(self.start, self.last_read)
+        self.write_channel = write_channel
+        self.error = False
 
     def add_data(self, data, message_end):
         ptype, rxtx, pdata = data
         self.last_read = message_end
         if ptype == 'DATA':
             self.data.append((pdata[0], message_end))
+
+    def message(self):
+        message = []
+        data = [d[0]  for d in self.data]
+        self.error = False
+
+        if len(data) < 4:
+            self.error = True
+            return "Message to short to be legal Modbus"
+
+        address = data[0]
+        if address == 0:
+            message.append("Broadcast message")
+        elif 1 <= address <= 247:
+            message.append("Slave ID: {}".format(address))
+        elif 248 <= address <=  255:
+            message.append("Slave ID: {} (reserved address)".format(address))
+            self.error = True
+
+        function = data[1]
+        if function == 3:
+            if len(data) < 8:
+                error = True
+                return "Message too short to be legal Read Holding Register"
+            starting_register = data[2] * 0x100 + data[3]
+            number_of_registers = data[4] * 0x100 + data[5]
+            message.append("Read {} holding registers starting at {}".format(
+                number_of_registers, 
+                starting_register))
+        else: 
+            message.append("Unknown function")
+
+        
+        return "; ".join(message)
+
+    def write_message(self):
+        message = self.message()
+
+        if self.error:
+            self.write_channel += 2
+
+        self.parent.put(self.start, 
+                        self.last_read, 
+                        self.parent.out_ann, 
+                        [self.write_channel, [message]])
+
 
 
 class Decoder(srd.Decoder):
@@ -55,10 +81,12 @@ class Decoder(srd.Decoder):
     annotations = (
         ('rx_description', 'What is happening on the line configured as Rx'),
         ('tx_description', 'What is happening on the line configured as Tx'),
+        ('rx_error', 'What is happening on the line configured as Rx'),
+        ('tx_error', 'What is happening on the line configured as Tx'),
     )
     annotation_rows = (
-        ('rx', 'Rx data', (0,)),
-        ('tx', 'Tx data', (1,)),
+        ('rx', 'Rx data', (0,2)),
+        ('tx', 'Tx data', (1,3)),
     )
 
 
@@ -90,15 +118,15 @@ class Decoder(srd.Decoder):
         if 0 <= (ss - ADU.last_read) <= Modbus_wait_max:
             ADU.add_data(data, es)
         else:
-            self.put(ADU.start, ADU.last_read, self.out_ann, [rxtx, [ADU.message()]])
+            ADU.write_message()
             self.start_new_decode(ss, es, data)
 
     def start_new_decode(self, ss, es, data):
         ptype, rxtx, pdata = data
 
         if rxtx == TX:
-            self.ADUTx = Modbus_ADU(ss)
+            self.ADUTx = Modbus_ADU(self, ss, TX)
         if rxtx == RX:
-            self.ADURx = Modbus_ADU(ss)
+            self.ADURx = Modbus_ADU(self, ss, RX)
 
         self.decode(ss, es, data)
