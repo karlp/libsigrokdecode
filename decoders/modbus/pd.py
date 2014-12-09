@@ -3,8 +3,6 @@ import sigrokdecode as srd
 
 RX = 0
 TX = 1
-Modbus_wait_max = 30
-
 
 class Modbus_ADU:
     def __init__(self, parent, start, write_channel):
@@ -91,11 +89,10 @@ class Decoder(srd.Decoder):
 
 
     def __init__(self, **kwargs):
-        self.set_empty_state()
-
-    def set_empty_state(self):
         self.ADURx = None
         self.ADUTx = None
+
+        self.bitlength = None
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
@@ -111,11 +108,20 @@ class Decoder(srd.Decoder):
     def decode_correct_ADU(self, ss, es, data, ADU):
         ptype, rxtx, pdata = data
 
+        # We need to know how long bits are before we can start decoding messages
+        if self.bitlength is None:
+            if ptype == "STARTBIT" or ptype == "STOPBIT":
+                self.bitlength = es - ss
+            else:
+                return
+
         if ADU is None:
             self.start_new_decode(ss, es, data)
             return
 
-        if 0 <= (ss - ADU.last_read) <= Modbus_wait_max:
+        # According to the modbus spek, there should be 3.5 characters worth of
+        # space between each message, and a character is 10 bits long
+        if 0 <= (ss - ADU.last_read) <= self.bitlength * 35:
             ADU.add_data(data, es)
         else:
             ADU.write_message()
