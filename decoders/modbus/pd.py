@@ -1,8 +1,17 @@
-import sigrokdecode as srd
+## Modbus is a protocol where you have a client and one or more servers. This
+## decoder is for Modbus RTU
 
+import sigrokdecode as srd
 
 RX = 0
 TX = 1
+
+class Data:
+    def __init__(self, start, end, data):
+        self.start = start
+        self.end = end
+        self.data = data
+
 
 class Modbus_ADU:
     def __init__(self, parent, start, write_channel):
@@ -12,79 +21,104 @@ class Modbus_ADU:
         self.start = start
         self.last_read = start
         self.write_channel = write_channel
-        self.error = False
 
-    def add_data(self, data, message_end):
+    def add_data(self, start, end, data):
         ptype, rxtx, pdata = data
-        self.last_read = message_end
+        self.last_read = end
         if ptype == 'DATA':
-            self.data.append((pdata[0], message_end))
+            self.data.append(Data(start, end, pdata[0]))
 
-    def message(self):
-        message = []
-        data = [d[0]  for d in self.data]
-        self.error = False
+    def writeClientServerMessages(self, channel, annotation_prefix):
+        data = self.data
+        put = self.parent.puta
+
+        message= ""
 
         if len(data) < 4:
-            self.error = True
-            return "Message to short to be legal Modbus"
+            if len(data) == 0:
+                # Sometimes happens with noise
+                return
+            put(data[0].start, data[-1].end,
+                annotation_prefix + "data",
+                "Message to short to be legal Modbus")
+            return
 
-        address = data[0]
-        if address == 0:
-            message.append("Broadcast message")
-        elif 1 <= address <= 247:
-            message.append("Slave ID: {}".format(address))
-        elif 248 <= address <=  255:
-            message.append("Slave ID: {} (reserved address)".format(address))
-            self.error = True
+        server_id = data[0].data
+        if server_id == 0:
+            message = "Broadcast message"
+        elif 1 <= server_id <= 247:
+            message = "Slave ID: {}".format(server_id)
+        elif 248 <= server_id <=  255:
+            message = "Slave ID: {} (reserved address)".format(server_id)
+        put(data[0].start, data[0].end,
+            annotation_prefix + "server-id",
+            message)
 
-        function = data[1]
+
+        function = data[1].data
         if function == 3:
+            put(data[1].start, data[1].end,
+                annotation_prefix + "function",
+                "Function 3: read holding registers")
             if len(data) < 8:
-                error = True
-                return "Message too short to be legal Read Holding Register"
-            starting_register = data[2] * 0x100 + data[3]
-            number_of_registers = data[4] * 0x100 + data[5]
-            message.append("Read {} holding registers starting at {}".format(
-                number_of_registers, 
-                starting_register))
-        else: 
-            message.append("Unknown function")
+                put(data[2].start, data[-1].end,
+                    annotation_prefix + "data",
+                    "Message too short to be legal Read Holding Register")
+                return
 
-        
-        return "; ".join(message)
+            starting_register = self.half_word(2)
+            put(data[2].start, data[3].end,
+                annotation_prefix + "starting-address",
+                "Start at address {:X} / {:d}".format(starting_register,
+                                                    starting_register + 40001))
+            put(data[4].start, data[5].end,
+                annotation_prefix + 'data',
+                "Read {:d} registers".format(self.half_word(4)))
+        else:
+            put(data[1].start, data[-3].end,
+                annotation_prefix + "data",
+                "Unknown function: {}".format(data[1].data))
 
     def write_message(self):
-        message = self.message()
+        self.writeClientServerMessages(RX, 'rx-Cs-')
+        pass
 
-        if self.error:
-            self.write_channel += 2
-
-        self.parent.put(self.start, 
-                        self.last_read, 
-                        self.parent.out_ann, 
-                        [self.write_channel, [message]])
-
+    def half_word(self, start):
+        """ Return the half word (16 bit) value starting at start bytes in. If
+        it goes out of range it raises the usual errors. """
+        return self.data[start].data * 0x100 + self.data[start+1].data
 
 
 class Decoder(srd.Decoder):
     api_version = 2
     id = 'modbus'
     name = 'Modbus'
-    longname = 'Modbus RTU over RS232'
+    longname = 'Modbus RTU over RS232/RS485'
     desc = 'Modbus RTU protocol for industrial applications'
     license = 'gplv2+'
     inputs = ['uart']
     outputs = ['modbus']
     annotations = (
-        ('rx_description', 'What is happening on the line configured as Rx'),
-        ('tx_description', 'What is happening on the line configured as Tx'),
-        ('rx_error', 'What is happening on the line configured as Rx'),
-        ('tx_error', 'What is happening on the line configured as Tx'),
+        ('rx-Sc-server-id', ''),
+        ('rx-Sc-function', ''),
+        ('rx-Sc-crc', ''),
+        ('rx-Sc-starting-address', ''),
+        ('rx-Sc-data', ''),
+        ('rx-Cs-server-id', ''),
+        ('rx-Cs-function', ''),
+        ('rx-Cs-crc', ''),
+        ('rx-Cs-starting-address', ''),
+        ('rx-Cs-data', ''),
+        ('tx-server-id', ''),
+        ('tx-function', ''),
+        ('tx-crc', ''),
+        ('tx-starting-address', ''),
+        ('tx-data', ''),
     )
     annotation_rows = (
-        ('rx', 'Rx data', (0,2)),
-        ('tx', 'Tx data', (1,3)),
+        ('rx-cs', 'Rx data, assuming all data is client->server', (0,1,2,3,4)),
+        ('rx-sc', 'Rx data, assuming all data is server->client', (5,6,7,8,9)),
+        ('tx', 'Tx data, assuming all data is client->server', (10,11,12,13,14)),
     )
 
 
@@ -105,6 +139,12 @@ class Decoder(srd.Decoder):
         if rxtx == RX:
             self.decode_correct_ADU(ss, es, data, self.ADURx)
 
+    def puta(self, start, end, annotation_channel_text, message):
+        """ put an annotation from start to end, with annotation_channel as a string """
+        annotation_channel = [s[0] for s in self.annotations].index(annotation_channel_text)
+        self.put(start, end, self.out_ann,
+                        [annotation_channel, [message]])
+
     def decode_correct_ADU(self, ss, es, data, ADU):
         ptype, rxtx, pdata = data
 
@@ -122,7 +162,7 @@ class Decoder(srd.Decoder):
         # According to the modbus spek, there should be 3.5 characters worth of
         # space between each message, and a character is 10 bits long
         if 0 <= (ss - ADU.last_read) <= self.bitlength * 35:
-            ADU.add_data(data, es)
+            ADU.add_data(ss, es, data)
         else:
             ADU.write_message()
             self.start_new_decode(ss, es, data)
