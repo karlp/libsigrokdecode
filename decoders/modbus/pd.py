@@ -162,9 +162,10 @@ class Decoder(srd.Decoder):
             self.start_new_decode(ss, es, data)
             return
 
-        # According to the modbus spek, there should be 3.5 characters worth of
-        # space between each message, and a character is 10 bits long
-        if 0 <= (ss - ADU.last_read) <= self.bitlength * 35:
+        # According to the modbus spec, there should be 3.5 characters worth of
+        # space between each message, and a character is 11 bits long
+        # Round down for reliablility
+        if 0 <= (ss - ADU.last_read) <= self.bitlength * 38:
             ADU.add_data(ss, es, data)
         else:
             ADU.write_message()
