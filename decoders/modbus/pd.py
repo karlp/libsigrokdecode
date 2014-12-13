@@ -51,37 +51,20 @@ class Modbus_ADU:
                 "Modbus data frames are limited to 256 bytes")
             return
 
-
         server_id = data[0].data
         if server_id == 0:
             message = "Broadcast message"
         elif 1 <= server_id <= 247:
             message = "Slave ID: {}".format(server_id)
-        elif 248 <= server_id <=  255:
+        elif 248 <= server_id <= 255:
             message = "Slave ID: {} (reserved address)".format(server_id)
         put(data[0].start, data[0].end,
             annotation_prefix + "server-id",
             message)
 
         function = data[1].data
-        if function == 3:
-            put(data[1].start, data[1].end,
-                annotation_prefix + "function",
-                "Function 3: read holding registers")
-            if len(data) < 8:
-                put(data[2].start, data[-1].end,
-                    annotation_prefix + "data",
-                    "Message too short to be legal Read Holding Register")
-                return
-
-            starting_register = self.half_word(2)
-            put(data[2].start, data[3].end,
-                annotation_prefix + "starting-address",
-                "Start at address {:X} / {:d}".format(starting_register,
-                                                    starting_register + 40001))
-            put(data[4].start, data[5].end,
-                annotation_prefix + 'data',
-                "Read {:d} registers".format(self.half_word(4)))
+        if function >= 1 and function <= 4:
+            self.write_read_data_command(annotation_prefix)
         else:
             put(data[1].start, data[-3].end,
                 annotation_prefix + "data",
@@ -101,6 +84,42 @@ class Modbus_ADU:
             self.writeClientServerMessages(RX, 'rx-Cs-')
         if self.write_channel == TX:
             self.writeClientServerMessages(RX, 'tx-')
+
+    def write_read_data_command(self, annotation_prefix):
+        """ Interpret a command to read x units of data starting at address, ie
+        functions 1,2,3 and 4, and write the result to the annotations """
+        data = self.data
+        put = self.parent.puta
+        function = data[1].data
+        functionname = {1: "Read Coils",
+                        2: "Read Discrete Inputs",
+                        3: "Read Holding Registers",
+                        4: "Read Input Registers",
+                        }[function]
+
+        put(data[1].start, data[1].end, annotation_prefix + "function",
+            "Function {}: {}".format(function, functionname))
+
+        if len(data) < 8:
+            # All of these functions need a slave ID, a function, two bytes of
+            # address, two bytes of quantity, and two bytes of CRC
+            put(data[2].start, data[-1].end, annotation_prefix + "data",
+                "Message too short to be legal {}".format(functionname))
+            return
+
+        starting_address = self.half_word(2)
+        # Some instruction manuals use a long form name for addresses, this is
+        # listed here for convienience.
+        # Example: holding register 60 becomes 30061.
+        address_name = 10000 * function + 1 + starting_address
+        put(data[2].start, data[3].end,
+            annotation_prefix + "starting-address",
+            "Start at address {:X} / {:d}".format(starting_address,
+                                                  address_name))
+
+        put(data[4].start, data[5].end,
+            annotation_prefix + 'data',
+            "Read {:d} units of data".format(self.half_word(4)))
 
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
