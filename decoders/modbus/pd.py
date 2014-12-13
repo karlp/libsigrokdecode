@@ -45,6 +45,13 @@ class Modbus_ADU:
                 "Message to short to be legal Modbus")
             return
 
+        if len(data) > 256:
+            put(data[0].start, data[-1].end,
+                annotation_prefix + "data",
+                "Modbus data frames are limited to 256 bytes")
+            return
+
+
         server_id = data[0].data
         if server_id == 0:
             message = "Broadcast message"
