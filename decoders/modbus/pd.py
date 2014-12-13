@@ -1,5 +1,7 @@
 ## Modbus is a protocol where you have a client and one or more servers. This
-## decoder is for Modbus RTU
+## decoder is for Modbus RTU.
+## The RX channel will be checked for both client->server and server->client
+## communication, the TX channel only for client->server.
 
 import sigrokdecode as srd
 
@@ -54,7 +56,6 @@ class Modbus_ADU:
             annotation_prefix + "server-id",
             message)
 
-
         function = data[1].data
         if function == 3:
             put(data[1].start, data[1].end,
@@ -80,8 +81,10 @@ class Modbus_ADU:
                 "Unknown function: {}".format(data[1].data))
 
     def write_message(self):
-        self.writeClientServerMessages(RX, 'rx-Cs-')
-        pass
+        if self.write_channel == RX:
+            self.writeClientServerMessages(RX, 'rx-Cs-')
+        if self.write_channel == TX:
+            self.writeClientServerMessages(RX, 'tx-')
 
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
