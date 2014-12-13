@@ -80,6 +80,15 @@ class Modbus_ADU:
                 annotation_prefix + "data",
                 "Unknown function: {}".format(data[1].data))
 
+        # Check CRC
+        crc_byte1, crc_byte2 = self.calc_crc()
+        if data[-2].data == crc_byte1 and data[-1].data == crc_byte2:
+            put(data[-2].start, data[-1].end, annotation_prefix + 'crc',
+                "CRC correct")
+        else:
+            put(data[-2].start, data[-1].end, annotation_prefix + 'crc',
+                "CRC should be {} {}".format(crc_byte1, crc_byte2))
+
     def write_message(self):
         if self.write_channel == RX:
             self.writeClientServerMessages(RX, 'rx-Cs-')
@@ -90,6 +99,21 @@ class Modbus_ADU:
         """ Return the half word (16 bit) value starting at start bytes in. If
         it goes out of range it raises the usual errors. """
         return self.data[start].data * 0x100 + self.data[start+1].data
+
+    def calc_crc(self, end=-2):
+        """ Calculate the CRC, as described in the spec """
+        result = 0xFFFF
+        magic_number = 0xA001  # as defined in the modbus specification
+        for byte in self.data[:end]:
+            result = result ^ byte.data
+            for i in range(8):
+                LSB = result & 1
+                result = result >> 1
+                if (LSB):  # if the LSB is true
+                    result = result ^ magic_number
+        byte1 = result & 0xFF
+        byte2 = (result & 0xFF00) >> 8
+        return (byte1, byte2)
 
 
 class Decoder(srd.Decoder):
