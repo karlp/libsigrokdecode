@@ -8,6 +8,7 @@ import sigrokdecode as srd
 RX = 0
 TX = 1
 
+
 class Data:
     def __init__(self, start, end, data):
         self.start = start
@@ -16,6 +17,7 @@ class Data:
 
 
 class Modbus_ADU:
+    """ An Application Data Unit is what MODBUS calls one message """
     def __init__(self, parent, start, write_channel):
         """Start new message, starting at start"""
         self.data = []
@@ -34,8 +36,6 @@ class Modbus_ADU:
         data = self.data
         put = self.parent.puta
 
-        message= ""
-
         if len(data) < 4:
             if len(data) == 0:
                 # Sometimes happens with noise
@@ -52,6 +52,7 @@ class Modbus_ADU:
             return
 
         server_id = data[0].data
+        message = ""
         if server_id == 0:
             message = "Broadcast message"
         elif 1 <= server_id <= 247:
@@ -169,11 +170,10 @@ class Decoder(srd.Decoder):
         ('tx-data', ''),
     )
     annotation_rows = (
-        ('rx-cs', 'Rx data, assuming all data is client->server', (0,1,2,3,4)),
-        ('rx-sc', 'Rx data, assuming all data is server->client', (5,6,7,8,9)),
-        ('tx', 'Tx data, assuming all data is client->server', (10,11,12,13,14)),
+        ('rx-cs', 'Rx data, client->server', (0, 1, 2, 3, 4)),
+        ('rx-sc', 'Rx data, server->client', (5, 6, 7, 8, 9)),
+        ('tx', 'Tx data, client->server', (10, 11, 12, 13, 14)),
     )
-
 
     def __init__(self, **kwargs):
         self.ADURx = None
@@ -193,15 +193,17 @@ class Decoder(srd.Decoder):
             self.decode_correct_ADU(ss, es, data, self.ADURx)
 
     def puta(self, start, end, annotation_channel_text, message):
-        """ put an annotation from start to end, with annotation_channel as a string """
+        """ Put an annotation from start to end, with annotation_channel as a
+        string """
         annotation_channel = [s[0] for s in self.annotations].index(annotation_channel_text)
         self.put(start, end, self.out_ann,
-                        [annotation_channel, [message]])
+                 [annotation_channel, [message]])
 
     def decode_correct_ADU(self, ss, es, data, ADU):
         ptype, rxtx, pdata = data
 
-        # We need to know how long bits are before we can start decoding messages
+        # We need to know how long bits are before we can start decoding
+        # messages
         if self.bitlength is None:
             if ptype == "STARTBIT" or ptype == "STOPBIT":
                 self.bitlength = es - ss
