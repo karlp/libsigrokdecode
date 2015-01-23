@@ -9,6 +9,12 @@ RX = 0
 TX = 1
 
 
+class No_more_data(Exception):
+    """ This exception is a signal that we should stop parsing an ADU as there
+    is no more data to parse """
+    pass
+
+
 class Data:
     def __init__(self, start, end, data):
         self.start = start
@@ -16,81 +22,120 @@ class Data:
         self.data = data
 
 
-class Modbus_ADU:
-    """ An Application Data Unit is what MODBUS calls one message """
-    def __init__(self, parent, start, write_channel):
-        """Start new message, starting at start"""
+class Modbus_ADU_CS:
+    """ An Application Data Unit is what MODBUS calls one message.
+    Protocol decoders are supposed to keep track of state and then provide
+    decoded data to the backend as it reads it. In modbus's case, the state is
+    the ADU up to that point. This class represents the state and writes the
+    messages to the backend.
+    CS stands for Client -> Server """
+    def __init__(self, parent, start, write_channel, annotation_prefix):
         self.data = []
         self.parent = parent
         self.start = start
         self.last_read = start
         self.write_channel = write_channel
+        self.last_byte_put = -1
+        self.annotation_prefix = annotation_prefix
+        # Any modbus message needs to be at least 4 long. The modbus function
+        # may make this longer
+        self.minimum_length = 4
 
     def add_data(self, start, end, data):
         ptype, rxtx, pdata = data
         self.last_read = end
         if ptype == 'DATA':
             self.data.append(Data(start, end, pdata[0]))
+            self.parse()
 
-    def writeClientServerMessages(self, channel, annotation_prefix):
+    def put_if_needed(self, byte_to_put, annotation, message):
+        """ This class keeps track of how much of the data has already been
+        annotated. This function tells the parent class to write message, but
+        only if it hasn't written about this bit before.
+        byte_to_put: only write if it hasn't yet written byte_to_put. It will
+           write from the start of self.last_byte_put+1 to the end of
+           byte_to_put.
+        annotation: annotation to write to, without annotation_prefix
+        message: message to write"""
+        if byte_to_put > len(self.data)-1:
+            # if the byte_to_put hasn't been read yet
+            raise No_more_data
+
+        if byte_to_put > self.last_byte_put:
+            self.parent.puta(
+                self.data[self.last_byte_put+1].start,
+                self.data[byte_to_put].end,
+                self.annotation_prefix + annotation,
+                message)
+            self.last_byte_put = byte_to_put
+            raise No_more_data
+
+    def close(self, message_overflow):
+        """ Function to be called when next message is started. As there is
+        always space between one message and the next, we can use that space
+        for errors at the end. """
+        # TODO: figure out how to make this happen for last message
         data = self.data
-        put = self.parent.puta
-
-        if len(data) < 4:
+        if len(data) < self.minimum_length:
             if len(data) == 0:
-                # Sometimes happens with noise
+                # Sometimes happens with noise, safe to ignore
                 return
-            put(data[0].start, data[-1].end,
-                annotation_prefix + "data",
-                "Message to short to be legal Modbus")
-            return
-
+            self.parent.puta(
+                data[self.last_byte_put].start, message_overflow,
+                self.annotation_prefix + "data",
+                "Message too short or not finished")
         if len(data) > 256:
-            put(data[0].start, data[-1].end,
-                annotation_prefix + "data",
-                "Modbus data frames are limited to 256 bytes")
-            return
+            try:
+                self.put_if_needed(
+                    len(data)-1,
+                    self.annotation_prefix + "data",
+                    "Modbus data frames are limited to 256 bytes")
+            except No_more_data:
+                pass
 
-        server_id = data[0].data
-        message = ""
-        if server_id == 0:
-            message = "Broadcast message"
-        elif 1 <= server_id <= 247:
-            message = "Slave ID: {}".format(server_id)
-        elif 248 <= server_id <= 255:
-            message = "Slave ID: {} (reserved address)".format(server_id)
-        put(data[0].start, data[0].end,
-            annotation_prefix + "server-id",
-            message)
+    def parse(self):
+        data = self.data
+        try:
+            server_id = data[0].data
+            message = ""
+            if server_id == 0:
+                message = "Broadcast message"
+            elif 1 <= server_id <= 247:
+                message = "Slave ID: {}".format(server_id)
+            elif 248 <= server_id <= 255:
+                message = "Slave ID: {} (reserved address)".format(server_id)
+            self.put_if_needed(0, "server-id", message)
 
-        function = data[1].data
-        if function >= 1 and function <= 4:
-            self.write_read_data_command(annotation_prefix)
-        else:
-            put(data[1].start, data[-3].end,
-                annotation_prefix + "data",
-                "Unknown function: {}".format(data[1].data))
+            function = data[1].data
+            if function >= 1 and function <= 4:
+                self.parse_read_data_command()
+            else:
+                self.put_if_needed(1, "data",
+                                   "Unknown function: {}".format(data[1].data))
+                self.put_if_needed(len(data)-1, "data", "Unknown function")
 
+        except No_more_data:
+            # this is just a message saying we don't need to parse anymore this
+            # round
+            pass
+
+    def check_CRC(self, byte_to_put):
+        """ Check the CRC code, data[byte_to_put] is the second byte of the CRC
+        """
         # Check CRC
-        crc_byte1, crc_byte2 = self.calc_crc()
+        crc_byte1, crc_byte2 = self.calc_crc(byte_to_put)
+        data = self.data
         if data[-2].data == crc_byte1 and data[-1].data == crc_byte2:
-            put(data[-2].start, data[-1].end, annotation_prefix + 'crc',
-                "CRC correct")
+            self.put_if_needed(byte_to_put, 'crc', "CRC correct")
         else:
-            put(data[-2].start, data[-1].end, annotation_prefix + 'crc',
+            self.put_if_needed(
+                byte_to_put, 'crc',
                 "CRC should be {} {}".format(crc_byte1, crc_byte2))
 
-    def write_message(self):
-        if self.write_channel == RX:
-            self.writeClientServerMessages(RX, 'rx-Cs-')
-        if self.write_channel == TX:
-            self.writeClientServerMessages(RX, 'tx-')
-
-    def write_read_data_command(self, annotation_prefix):
+    def parse_read_data_command(self):
         """ Interpret a command to read x units of data starting at address, ie
         functions 1,2,3 and 4, and write the result to the annotations """
         data = self.data
-        put = self.parent.puta
         function = data[1].data
         functionname = {1: "Read Coils",
                         2: "Read Discrete Inputs",
@@ -98,40 +143,44 @@ class Modbus_ADU:
                         4: "Read Input Registers",
                         }[function]
 
-        put(data[1].start, data[1].end, annotation_prefix + "function",
-            "Function {}: {}".format(function, functionname))
+        self.put_if_needed(1, "function",
+                           "Function {}: {}".format(function, functionname))
 
-        if len(data) < 8:
-            # All of these functions need a slave ID, a function, two bytes of
-            # address, two bytes of quantity, and two bytes of CRC
-            put(data[2].start, data[-1].end, annotation_prefix + "data",
-                "Message too short to be legal {}".format(functionname))
-            return
+        self.minimum_length = max(self.minimum_length, 8)
 
         starting_address = self.half_word(2)
         # Some instruction manuals use a long form name for addresses, this is
         # listed here for convienience.
         # Example: holding register 60 becomes 30061.
         address_name = 10000 * function + 1 + starting_address
-        put(data[2].start, data[3].end,
-            annotation_prefix + "starting-address",
-            "Start at address {:X} / {:d}".format(starting_address,
-                                                  address_name))
+        self.put_if_needed(
+            3, "starting-address",
+            "Start at address 0x{:X} / {:d}".format(starting_address,
+                                                    address_name))
 
-        put(data[4].start, data[5].end,
-            annotation_prefix + 'data',
-            "Read {:d} units of data".format(self.half_word(4)))
+        self.put_if_needed(5, 'data',
+                           "Read {:d} units of data".format(self.half_word(4)))
+        self.check_CRC(7)
 
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
         it goes out of range it raises the usual errors. """
+        if start+1 > len(self.data)-1:
+            # If there isn't enough length to access data[start+1]
+            raise No_more_data
         return self.data[start].data * 0x100 + self.data[start+1].data
 
-    def calc_crc(self, end=-2):
-        """ Calculate the CRC, as described in the spec """
+    def calc_crc(self, last_byte):
+        """ Calculate the CRC, as described in the spec
+        The last byte of the crc should be data[last_byte] """
+        if last_byte < 3:
+            # every modbus ADU should be as least 4 long, so we should never
+            # have to calculate a CRC on something shorter
+            raise Exception("Could not calculate CRC: message too short")
+
         result = 0xFFFF
         magic_number = 0xA001  # as defined in the modbus specification
-        for byte in self.data[:end]:
+        for byte in self.data[:last_byte-1]:
             result = result ^ byte.data
             for i in range(8):
                 LSB = result & 1
@@ -195,7 +244,8 @@ class Decoder(srd.Decoder):
     def puta(self, start, end, annotation_channel_text, message):
         """ Put an annotation from start to end, with annotation_channel as a
         string """
-        annotation_channel = [s[0] for s in self.annotations].index(annotation_channel_text)
+        annotation_channel = \
+            [s[0] for s in self.annotations].index(annotation_channel_text)
         self.put(start, end, self.out_ann,
                  [annotation_channel, [message]])
 
@@ -220,15 +270,19 @@ class Decoder(srd.Decoder):
         if 0 <= (ss - ADU.last_read) <= self.bitlength * 38:
             ADU.add_data(ss, es, data)
         else:
-            ADU.write_message()
+            # if there is any data in the ADU
+            if len(ADU.data) > 0:
+                # extend errors for 3 bits after last byte, we can guarentee
+                # space
+                ADU.close(ADU.data[-1].end + self.bitlength * 3)
             self.start_new_decode(ss, es, data)
 
     def start_new_decode(self, ss, es, data):
         ptype, rxtx, pdata = data
 
         if rxtx == TX:
-            self.ADUTx = Modbus_ADU(self, ss, TX)
+            self.ADUTx = Modbus_ADU_CS(self, ss, TX, "tx-")
         if rxtx == RX:
-            self.ADURx = Modbus_ADU(self, ss, RX)
+            self.ADURx = Modbus_ADU_CS(self, ss, RX, "rx-Cs-")
 
         self.decode(ss, es, data)
