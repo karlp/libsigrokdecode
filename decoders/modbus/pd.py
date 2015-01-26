@@ -114,6 +114,11 @@ class Modbus_ADU_CS:
                                    "Unknown function: {}".format(data[1].data))
                 self.put_if_needed(len(data)-1, "data", "Unknown function")
 
+            # if the message gets here without raising an exception, the
+            # message goes on longer than it should
+
+            self.put_if_needed(len(data)-1, "data", "Message too long")
+
         except No_more_data:
             # this is just a message saying we don't need to parse anymore this
             # round
