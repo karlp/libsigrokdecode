@@ -109,6 +109,8 @@ class Modbus_ADU_CS:
             function = data[1].data
             if function >= 1 and function <= 4:
                 self.parse_read_data_command()
+            if function == 5:
+                self.parse_write_single_coil()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -165,6 +167,28 @@ class Modbus_ADU_CS:
 
         self.put_if_needed(5, 'data',
                            "Read {:d} units of data".format(self.half_word(4)))
+        self.check_CRC(7)
+
+    def parse_write_single_coil(self):
+        """ Parse function 5, write single coil """
+        self.minimum_length = max(self.minimum_length, 8)
+
+        self.put_if_needed(1, "function",  "Function 5: Write Single Coil")
+
+        address = self.half_word(2)
+        self.put_if_needed(
+            3, "starting_address",
+            "Write to address 0x{:X} / {:d}".format(address,
+                                                    address + 10000))
+
+        raw_value = self.half_word(4)
+        value = "Invalid Coil Value"
+        if raw_value == 0x0000:
+            value = "Coil Value OFF"
+        elif raw_value == 0xFF00:
+            value = "Coil Value ON"
+        self.put_if_needed(5, 'data', value)
+
         self.check_CRC(7)
 
     def half_word(self, start):
