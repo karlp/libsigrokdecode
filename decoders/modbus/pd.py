@@ -141,6 +141,8 @@ class Modbus_ADU_CS:
         """ Interpret a command to read x units of data starting at address, ie
         functions 1,2,3 and 4, and write the result to the annotations """
         data = self.data
+        self.minimum_length = max(self.minimum_length, 8)
+
         function = data[1].data
         functionname = {1: "Read Coils",
                         2: "Read Discrete Inputs",
@@ -150,8 +152,6 @@ class Modbus_ADU_CS:
 
         self.put_if_needed(1, "function",
                            "Function {}: {}".format(function, functionname))
-
-        self.minimum_length = max(self.minimum_length, 8)
 
         starting_address = self.half_word(2)
         # Some instruction manuals use a long form name for addresses, this is
