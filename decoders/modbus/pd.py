@@ -92,7 +92,7 @@ class Modbus_ADU_CS:
                 # Sometimes happens with noise, safe to ignore
                 return
             self.parent.puta(
-                data[self.last_byte_put].start, message_overflow,
+                data[self.last_byte_put].end, message_overflow,
                 self.annotation_prefix + "data",
                 "Message too short or not finished")
         if len(data) > 256:
@@ -369,10 +369,18 @@ class Decoder(srd.Decoder):
             self.start_new_decode(ss, es, data)
             return
 
+        # Sometimes a startbit happens before the end of the last data. Ignore
+        # this.
+        if ss < ADU.last_read:
+            return
+
         # According to the modbus spec, there should be 3.5 characters worth of
-        # space between each message, and a character is 11 bits long
-        # Round down for reliablility
-        if 0 <= (ss - ADU.last_read) <= self.bitlength * 38:
+        # space between each message. But if within a message there is a length
+        # of more than 1.5 character, that's an error. For our purposes
+        # somewhere between seems fine.
+        # A Character is 11 bits long, so (3.5 + 1.5)/2 * 11 ~= 28
+        # TODO: display error for too short or too long
+        if (ss - ADU.last_read) <= self.bitlength * 28:
             ADU.add_data(ss, es, data)
         else:
             # if there is any data in the ADU
