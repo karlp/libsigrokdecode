@@ -3,6 +3,8 @@
 ## The RX channel will be checked for both client->server and server->client
 ## communication, the TX channel only for client->server.
 
+from math import ceil
+
 import sigrokdecode as srd
 
 RX = 0
@@ -70,6 +72,15 @@ class Modbus_ADU_CS:
             self.last_byte_put = byte_to_put
             raise No_more_data
 
+    def put_last_byte(self, annotation, message, maximum=None):
+        """ Puts the last byte on the stack with message. The contents of the
+        last byte will be applied to message using format. """
+        last_byte_address = len(self.data) - 1
+        if maximum is not None and last_byte_address > maximum:
+            return
+        self.put_if_needed(last_byte_address, annotation,
+                           message.format(self.data[-1]))
+
     def close(self, message_overflow):
         """ Function to be called when next message is started. As there is
         always space between one message and the next, we can use that space
@@ -118,12 +129,12 @@ class Modbus_ADU_CS:
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
-                self.put_if_needed(len(data)-1, "data", "Unknown function")
+                self.put_last_byte("data", "Unknown function")
 
             # if the message gets here without raising an exception, the
             # message goes on longer than it should
 
-            self.put_if_needed(len(data)-1, "data", "Message too long")
+            self.put_last_byte("data", "Message too long")
 
         except No_more_data:
             # this is just a message saying we don't need to parse anymore this
@@ -225,6 +236,36 @@ class Modbus_ADU_CS:
                            "Function {}: {}".format(function, function_name))
 
         self.check_CRC(3)
+
+    # TODO: parse function 8. Spec is not clear, needs testing.
+
+    def parse_write_multiple_coils(self):
+        self.put_if_needed(1, "function", "Function 15: Write multiple coils")
+
+        starting_address = self.half_word(2)
+        # Some instruction manuals use a long form name for addresses, this is
+        # listed here for convienience.
+        address_name = 10001 + starting_address
+        self.put_if_needed(
+            3, "starting-address",
+            "Start at address 0x{:X} / {:d}".format(starting_address,
+                                                    address_name))
+
+        quantity_of_outputs = self.half_word(4)
+        self.put_if_needed(5, "data",
+                           "Write {} Coils".format(quantity_of_outputs))
+        proper_bytecount = ceil(quantity_of_outputs/8)
+
+        bytecount = self.data[6]
+        if bytecount == proper_bytecount:
+            self.put_if_needed(6, "data", "Byte count: {}".format(bytecount))
+        else:
+            self.put_if_needed(
+                6, "data",
+                "Bad byte count, is {}, should be {}".format(bytecount,
+                                                             proper_bytecount))
+
+        self.put_last_byte('data', 'Data, value 0x{:X}', 6 + bytecount)
 
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
