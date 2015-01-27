@@ -113,6 +113,8 @@ class Modbus_ADU_CS:
                 self.parse_write_single_coil()
             if function == 6:
                 self.parse_write_single_register()
+            if function in {7, 11, 12, 17}:
+                self.parse_single_byte_request()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -210,6 +212,19 @@ class Modbus_ADU_CS:
         self.put_if_needed(5, 'data', value_formatted)
 
         self.check_CRC(7)
+
+    def parse_single_byte_request(self):
+        """ Some MODBUS functions have no arguments, this parses those """
+        function = self.data[1]
+        function_name = {7: "Read Exception Status",
+                         11: "Get Comm Event Counter",
+                         12: "Get Comm Event Log",
+                         17: "Report Slave ID",
+                         }[function]
+        self.put_if_needed(1, "function",
+                           "Function {}: {}".format(function, function_name))
+
+        self.check_CRC(3)
 
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
