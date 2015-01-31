@@ -126,8 +126,8 @@ class Modbus_ADU_CS:
                 self.parse_write_single_register()
             if function in {7, 11, 12, 17}:
                 self.parse_single_byte_request()
-            if function == 15:
-                self.parse_write_multiple_coils()
+            if function in {15, 16}:
+                self.parse_write_multiple()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -241,27 +241,46 @@ class Modbus_ADU_CS:
 
     # TODO: parse function 8. Spec is not clear, needs testing.
 
-    def parse_write_multiple_coils(self):
-        self.put_if_needed(1, "function", "Function 15: Write multiple coils")
+    def parse_write_multiple(self):
+        """ Function 15 and 16 are almost the same, so we can parse them both
+        using one function """
+
+        function = self.data[1]
+        if function == 15:
+            data_unit = "Coils"
+            max_outputs = 0x07B0
+            ratio_bytes_data = 1/8
+            long_address_offset = 10001
+        elif function == 16:
+            data_unit = "Registers"
+            max_outputs = 0x007B
+            ratio_bytes_data = 2
+            long_address_offset = 30001
+
+        self.put_if_needed(
+            1, "function",
+            "Function {}: Write Multiple {}".format(function, data_unit))
 
         starting_address = self.half_word(2)
         # Some instruction manuals use a long form name for addresses, this is
         # listed here for convienience.
-        address_name = 10001 + starting_address
+        address_name = long_address_offset + starting_address
         self.put_if_needed(
             3, "starting-address",
             "Start at address 0x{:X} / {:d}".format(starting_address,
                                                     address_name))
 
         quantity_of_outputs = self.half_word(4)
-        if quantity_of_outputs <= 0x07B0:
+        if quantity_of_outputs <= max_outputs:
             self.put_if_needed(5, "data",
-                               "Write {} Coils".format(quantity_of_outputs))
+                               "Write {} {}".format(quantity_of_outputs,
+                                                    data_unit))
         else:
             self.put_if_needed(
                 5, "data",
-                "Bad value: {} Coils. Max is 1968".format(quantity_of_outputs))
-        proper_bytecount = ceil(quantity_of_outputs/8)
+                "Bad value: {} {}. Max is {}".format(quantity_of_outputs,
+                                                     data_unit, max_outputs))
+        proper_bytecount = ceil(quantity_of_outputs * ratio_bytes_data)
 
         bytecount = self.data[6]
         if bytecount == proper_bytecount:
