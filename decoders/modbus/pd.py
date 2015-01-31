@@ -126,6 +126,8 @@ class Modbus_ADU_CS:
                 self.parse_write_single_register()
             if function in {7, 11, 12, 17}:
                 self.parse_single_byte_request()
+            if function == 15:
+                self.parse_write_multiple_coils()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -252,8 +254,13 @@ class Modbus_ADU_CS:
                                                     address_name))
 
         quantity_of_outputs = self.half_word(4)
-        self.put_if_needed(5, "data",
-                           "Write {} Coils".format(quantity_of_outputs))
+        if quantity_of_outputs <= 0x07B0:
+            self.put_if_needed(5, "data",
+                               "Write {} Coils".format(quantity_of_outputs))
+        else:
+            self.put_if_needed(
+                5, "data",
+                "Bad value: {} Coils. Max is 1968".format(quantity_of_outputs))
         proper_bytecount = ceil(quantity_of_outputs/8)
 
         bytecount = self.data[6]
@@ -266,6 +273,8 @@ class Modbus_ADU_CS:
                                                              proper_bytecount))
 
         self.put_last_byte('data', 'Data, value 0x{:X}', 6 + bytecount)
+
+        self.check_CRC(bytecount + 7)
 
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
