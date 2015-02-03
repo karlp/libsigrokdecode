@@ -295,6 +295,59 @@ class Modbus_ADU_CS:
 
         self.check_CRC(bytecount + 7)
 
+    def parse_read_file_record(self):
+        self.put_if_needed(1, "function", "Function 20: Read file records")
+
+        data = self.data
+
+        bytecount = data[2]
+        self.minimum_length = 5 + bytecount
+        # 1 for serverID, 1 for function, 1 for bytecount, 2 for CRC
+        if 0x07 <= bytecount <= 0xF5:
+            self.put_if_needed(2, "data",
+                               "Request is {} bytes long".format(bytecount))
+        else:
+            self.put_if_needed(
+                2, "data",
+                "Request claims to be {} bytes long, legal values are between"
+                " 7 and 247".format(bytecount))
+
+        current_byte = len(data) - 1
+        # Function 20 is a number of sub-requests, the first starting at 3,
+        # the total length of the sub-requests is bytecount
+        if current_byte <= bytecount + 2:
+            step = (current_byte - 3) % 7
+            if step == 0:
+                if data[current_byte] == 6:
+                    self.put_if_needed(current_byte, "data",
+                                       "Start sub-request")
+                else:
+                    self.put_if_needed(
+                        current_byte, "data",
+                        "First byte of subrequest should be 0x06")
+            elif step == 1:
+                raise No_more_data
+            elif step == 2:
+                file_number = self.half_word(current_byte - 1)
+                self.put_if_needed(current_byte, "data",
+                                   "Read File number {}".format(file_number))
+            elif step == 3:
+                raise No_more_data
+            elif step == 4:
+                record_number = self.half_word(current_byte - 1)
+                self.put_if_needed(
+                    current_byte, "data",
+                    "Read from record number {}".format(record_number))
+                # TODO: check if within range
+            elif step == 5:
+                raise No_more_data
+            elif step == 6:
+                records_to_read = self.half_word(current_byte - 1)
+                self.put_if_needed(
+                    current_byte, "data",
+                    "Read {} records".format(records_to_read))
+        self.check_CRC()
+
     def half_word(self, start):
         """ Return the half word (16 bit) value starting at start bytes in. If
         it goes out of range it raises the usual errors. """
