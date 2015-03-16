@@ -382,7 +382,7 @@ class Modbus_ADU_CS(Modbus_ADU):
 
         self.put_last_byte('data', 'Data, value 0x{:X}', 6 + bytecount)
 
-        self.check_CRC(bytecount + 7)
+        self.check_CRC(bytecount + 8)
 
     def parse_read_file_record(self):
         self.put_if_needed(1, "function", "Function 20: Read file records")
