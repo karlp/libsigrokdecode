@@ -79,7 +79,7 @@ class Modbus_ADU_CS:
         if maximum is not None and last_byte_address > maximum:
             return
         self.put_if_needed(last_byte_address, annotation,
-                           message.format(self.data[-1]))
+                           message.format(self.data[-1].data))
 
     def close(self, message_overflow):
         """ Function to be called when next message is started. As there is
@@ -194,7 +194,7 @@ class Modbus_ADU_CS:
 
         address = self.half_word(2)
         self.put_if_needed(
-            3, "starting_address",
+            3, "starting-address",
             "Write to address 0x{:X} / {:d}".format(address,
                                                     address + 10000))
 
@@ -216,7 +216,7 @@ class Modbus_ADU_CS:
 
         address = self.half_word(2)
         self.put_if_needed(
-            3, "starting_address",
+            3, "starting-address",
             "Write to address 0x{:X} / {:d}".format(address,
                                                     address + 30000))
 
@@ -245,7 +245,7 @@ class Modbus_ADU_CS:
         """ Function 15 and 16 are almost the same, so we can parse them both
         using one function """
 
-        function = self.data[1]
+        function = self.data[1].data
         if function == 15:
             data_unit = "Coils"
             max_outputs = 0x07B0
@@ -282,7 +282,7 @@ class Modbus_ADU_CS:
                                                      data_unit, max_outputs))
         proper_bytecount = ceil(quantity_of_outputs * ratio_bytes_data)
 
-        bytecount = self.data[6]
+        bytecount = self.data[6].data
         if bytecount == proper_bytecount:
             self.put_if_needed(6, "data", "Byte count: {}".format(bytecount))
         else:
@@ -300,7 +300,7 @@ class Modbus_ADU_CS:
 
         data = self.data
 
-        bytecount = data[2]
+        bytecount = data[2].data
         self.minimum_length = 5 + bytecount
         # 1 for serverID, 1 for function, 1 for bytecount, 2 for CRC
         if 0x07 <= bytecount <= 0xF5:
@@ -318,7 +318,7 @@ class Modbus_ADU_CS:
         if current_byte <= bytecount + 2:
             step = (current_byte - 3) % 7
             if step == 0:
-                if data[current_byte] == 6:
+                if data[current_byte].data == 6:
                     self.put_if_needed(current_byte, "data",
                                        "Start sub-request")
                 else:
@@ -448,11 +448,6 @@ class Decoder(srd.Decoder):
 
         if ADU is None:
             self.start_new_decode(ss, es, data)
-            return
-
-        # Sometimes a startbit happens before the end of the last data. Ignore
-        # this.
-        if ss < ADU.last_read:
             return
 
         # According to the modbus spec, there should be 3.5 characters worth of
