@@ -24,13 +24,14 @@ class Data:
         self.data = data
 
 
-class Modbus_ADU_CS:
+class Modbus_ADU:
     """ An Application Data Unit is what MODBUS calls one message.
     Protocol decoders are supposed to keep track of state and then provide
     decoded data to the backend as it reads it. In modbus's case, the state is
     the ADU up to that point. This class represents the state and writes the
     messages to the backend.
-    CS stands for Client -> Server """
+    This class is for the common infrastructure between CS and SC"""
+
     def __init__(self, parent, start, write_channel, annotation_prefix):
         self.data = []
         self.parent = parent
@@ -104,6 +105,51 @@ class Modbus_ADU_CS:
             except No_more_data:
                 pass
 
+    def check_CRC(self, byte_to_put):
+        """ Check the CRC code, data[byte_to_put] is the second byte of the CRC
+        """
+        # Check CRC
+        crc_byte1, crc_byte2 = self.calc_crc(byte_to_put)
+        data = self.data
+        if data[-2].data == crc_byte1 and data[-1].data == crc_byte2:
+            self.put_if_needed(byte_to_put, 'crc', "CRC correct")
+        else:
+            self.put_if_needed(
+                byte_to_put, 'crc',
+                "CRC should be {} {}".format(crc_byte1, crc_byte2))
+
+    def half_word(self, start):
+        """ Return the half word (16 bit) value starting at start bytes in. If
+        it goes out of range it raises the usual errors. """
+        if start+1 > len(self.data)-1:
+            # If there isn't enough length to access data[start+1]
+            raise No_more_data
+        return self.data[start].data * 0x100 + self.data[start+1].data
+
+    def calc_crc(self, last_byte):
+        """ Calculate the CRC, as described in the spec
+        The last byte of the crc should be data[last_byte] """
+        if last_byte < 3:
+            # every modbus ADU should be as least 4 long, so we should never
+            # have to calculate a CRC on something shorter
+            raise Exception("Could not calculate CRC: message too short")
+
+        result = 0xFFFF
+        magic_number = 0xA001  # as defined in the modbus specification
+        for byte in self.data[:last_byte-1]:
+            result = result ^ byte.data
+            for i in range(8):
+                LSB = result & 1
+                result = result >> 1
+                if (LSB):  # if the LSB is true
+                    result = result ^ magic_number
+        byte1 = result & 0xFF
+        byte2 = (result & 0xFF00) >> 8
+        return (byte1, byte2)
+
+
+class Modbus_ADU_CS(Modbus_ADU):
+    """ CS stands for Client -> Server """
     def parse(self):
         data = self.data
         try:
@@ -142,19 +188,6 @@ class Modbus_ADU_CS:
             # this is just a message saying we don't need to parse anymore this
             # round
             pass
-
-    def check_CRC(self, byte_to_put):
-        """ Check the CRC code, data[byte_to_put] is the second byte of the CRC
-        """
-        # Check CRC
-        crc_byte1, crc_byte2 = self.calc_crc(byte_to_put)
-        data = self.data
-        if data[-2].data == crc_byte1 and data[-1].data == crc_byte2:
-            self.put_if_needed(byte_to_put, 'crc', "CRC correct")
-        else:
-            self.put_if_needed(
-                byte_to_put, 'crc',
-                "CRC should be {} {}".format(crc_byte1, crc_byte2))
 
     def parse_read_data_command(self):
         """ Interpret a command to read x units of data starting at address, ie
@@ -347,35 +380,6 @@ class Modbus_ADU_CS:
                     current_byte, "data",
                     "Read {} records".format(records_to_read))
         self.check_CRC()
-
-    def half_word(self, start):
-        """ Return the half word (16 bit) value starting at start bytes in. If
-        it goes out of range it raises the usual errors. """
-        if start+1 > len(self.data)-1:
-            # If there isn't enough length to access data[start+1]
-            raise No_more_data
-        return self.data[start].data * 0x100 + self.data[start+1].data
-
-    def calc_crc(self, last_byte):
-        """ Calculate the CRC, as described in the spec
-        The last byte of the crc should be data[last_byte] """
-        if last_byte < 3:
-            # every modbus ADU should be as least 4 long, so we should never
-            # have to calculate a CRC on something shorter
-            raise Exception("Could not calculate CRC: message too short")
-
-        result = 0xFFFF
-        magic_number = 0xA001  # as defined in the modbus specification
-        for byte in self.data[:last_byte-1]:
-            result = result ^ byte.data
-            for i in range(8):
-                LSB = result & 1
-                result = result >> 1
-                if (LSB):  # if the LSB is true
-                    result = result ^ magic_number
-        byte1 = result & 0xFF
-        byte2 = (result & 0xFF00) >> 8
-        return (byte1, byte2)
 
 
 class Decoder(srd.Decoder):
