@@ -147,6 +147,62 @@ class Modbus_ADU:
         byte2 = (result & 0xFF00) >> 8
         return (byte1, byte2)
 
+class Modbus_ADU_SC(Modbus_ADU):
+    """ SC stands for Server -> Client """
+    def parse(self):
+        data = self.data
+        try:
+            server_id = data[0].data
+            if 1 <= server_id <= 247:
+                message = "Slave ID: {}".format(server_id)
+            else:
+                message = "Slave ID {} is invalid"
+            self.put_if_needed(0, "server-id", message)
+
+            function = data[1].data
+            if function == 3:
+                self.parse_read_holding_registers()
+            else:
+                self.put_if_needed(1, "data",
+                                   "Unknown function: {}".format(data[1].data))
+                self.put_last_byte("data", "Unknown function")
+
+            # if the message gets here without raising an exception, the
+            # message goes on longer than it should
+
+            self.put_last_byte("data", "Message too long")
+
+        except No_more_data:
+            # this is just a message saying we don't need to parse anymore this
+            # round
+            pass
+
+    def parse_read_holding_registers(self):
+        data = self.data
+
+        self.put_if_needed(1, "function",
+                           "Function 3: Read Holding Registers")
+
+        bytecount = self.data[2].data
+        self.minimum_length = 5 + bytecount # 3 before data, 2 crc
+        if bytecount % 2 == 0:
+            self.put_if_needed(2, "data",
+                               "Byte count: {}".format(bytecount))
+        else:
+            self.put_if_needed(
+                2, "data",
+                "Error: Odd byte count ({})".format(bytecount))
+
+        # From here on out, we expect registers on 3 and 4, 5 and 6 etc
+        # So registers never start when the length is even
+        if len(data) % 2 == 1:
+            register_value = self.half_word(-2)
+            self.put_last_byte("data", "0x{0:X} / {0}".format(register_value), bytecount + 2)
+        else:
+            raise No_more_data
+
+        self.check_CRC(bytecount + 4)
+
 
 class Modbus_ADU_CS(Modbus_ADU):
     """ CS stands for Client -> Server """
@@ -476,6 +532,6 @@ class Decoder(srd.Decoder):
         if rxtx == TX:
             self.ADUTx = Modbus_ADU_CS(self, ss, TX, "tx-")
         if rxtx == RX:
-            self.ADURx = Modbus_ADU_CS(self, ss, RX, "rx-Cs-")
+            self.ADURx = Modbus_ADU_SC(self, ss, RX, "rx-Sc-")
 
         self.decode(ss, es, data)
