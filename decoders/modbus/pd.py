@@ -147,6 +147,46 @@ class Modbus_ADU:
         byte2 = (result & 0xFF00) >> 8
         return (byte1, byte2)
 
+    def parse_write_single_coil(self):
+        """ Parse function 5, write single coil """
+        self.minimum_length = max(self.minimum_length, 8)
+
+        self.put_if_needed(1, "function",  "Function 5: Write Single Coil")
+
+        address = self.half_word(2)
+        self.put_if_needed(
+            3, "starting-address",
+            "Address 0x{:X} / {:d}".format(address,
+                                           address + 10000))
+
+        raw_value = self.half_word(4)
+        value = "Invalid Coil Value"
+        if raw_value == 0x0000:
+            value = "Coil Value OFF"
+        elif raw_value == 0xFF00:
+            value = "Coil Value ON"
+        self.put_if_needed(5, 'data', value)
+
+        self.check_CRC(7)
+
+    def parse_write_single_register(self):
+        """ Parse function 6, write single register """
+        self.minimum_length = max(self.minimum_length, 8)
+
+        self.put_if_needed(1, "function",  "Function 6: Write Single Register")
+
+        address = self.half_word(2)
+        self.put_if_needed(
+            3, "starting-address",
+            "Address 0x{:X} / {:d}".format(address,
+                                           address + 30000))
+
+        value = self.half_word(4)
+        value_formatted = "Register Value 0x{0:X} / {0:d}".format(value)
+        self.put_if_needed(5, 'data', value_formatted)
+
+        self.check_CRC(7)
+
 class Modbus_ADU_SC(Modbus_ADU):
     """ SC stands for Server -> Client """
     def parse(self):
@@ -164,6 +204,10 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_read_bits()
             elif function == 3 or function == 4:
                 self.parse_read_registers()
+            elif function == 5:
+                self.parse_write_single_coil()
+            elif function == 6:
+                self.parse_write_single_register()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -231,7 +275,6 @@ class Modbus_ADU_SC(Modbus_ADU):
             raise No_more_data
 
         self.check_CRC(bytecount + 4)
-
 
 class Modbus_ADU_CS(Modbus_ADU):
     """ CS stands for Client -> Server """
@@ -302,46 +345,6 @@ class Modbus_ADU_CS(Modbus_ADU):
 
         self.put_if_needed(5, 'data',
                            "Read {:d} units of data".format(self.half_word(4)))
-        self.check_CRC(7)
-
-    def parse_write_single_coil(self):
-        """ Parse function 5, write single coil """
-        self.minimum_length = max(self.minimum_length, 8)
-
-        self.put_if_needed(1, "function",  "Function 5: Write Single Coil")
-
-        address = self.half_word(2)
-        self.put_if_needed(
-            3, "starting-address",
-            "Write to address 0x{:X} / {:d}".format(address,
-                                                    address + 10000))
-
-        raw_value = self.half_word(4)
-        value = "Invalid Coil Value"
-        if raw_value == 0x0000:
-            value = "Coil Value OFF"
-        elif raw_value == 0xFF00:
-            value = "Coil Value ON"
-        self.put_if_needed(5, 'data', value)
-
-        self.check_CRC(7)
-
-    def parse_write_single_register(self):
-        """ Parse function 6, write single register """
-        self.minimum_length = max(self.minimum_length, 8)
-
-        self.put_if_needed(1, "function",  "Function 5: Write Single Register")
-
-        address = self.half_word(2)
-        self.put_if_needed(
-            3, "starting-address",
-            "Write to address 0x{:X} / {:d}".format(address,
-                                                    address + 30000))
-
-        value = self.half_word(4)
-        value_formatted = "Register Value 0x{0:X} / {0:d}".format(value)
-        self.put_if_needed(5, 'data', value_formatted)
-
         self.check_CRC(7)
 
     def parse_single_byte_request(self):
