@@ -160,10 +160,10 @@ class Modbus_ADU_SC(Modbus_ADU):
             self.put_if_needed(0, "server-id", message)
 
             function = data[1].data
-            if function == 1:
-                self.parse_read_coils()
-            elif function == 3:
-                self.parse_read_holding_registers()
+            if function == 1 or function == 2:
+                self.parse_read_bits()
+            elif function == 3 or function == 4:
+                self.parse_read_registers()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -179,11 +179,16 @@ class Modbus_ADU_SC(Modbus_ADU):
             # round
             pass
 
-    def parse_read_coils(self):
+    def parse_read_bits(self):
         data = self.data
+        function = data[1].data
 
-        self.put_if_needed(1, "function",
-                           "Function 1: Read Coils")
+        if function == 1:
+            self.put_if_needed(1, "function",
+                               "Function 1: Read Coils")
+        else:
+            self.put_if_needed(1, "function",
+                               "Function 2: Read Discrete Inputs")
 
         bytecount = self.data[2].data
         self.minimum_length = 5 + bytecount # 3 before data, 2 crc
@@ -195,11 +200,17 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.put_last_byte("data", "{:08b}", bytecount + 2)
         self.check_CRC(bytecount + 4)
 
-    def parse_read_holding_registers(self):
+    def parse_read_registers(self):
         data = self.data
 
-        self.put_if_needed(1, "function",
-                           "Function 3: Read Holding Registers")
+        function = data[1].data
+        if function == 3:
+            self.put_if_needed(1, "function",
+                               "Function 3: Read Holding Registers")
+        else:
+            self.put_if_needed(1, "function",
+                               "Function 4: Read Input Registers")
+
 
         bytecount = self.data[2].data
         self.minimum_length = 5 + bytecount # 3 before data, 2 crc
