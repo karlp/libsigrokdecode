@@ -187,6 +187,7 @@ class Modbus_ADU:
 
         self.check_CRC(7)
 
+
 class Modbus_ADU_SC(Modbus_ADU):
     """ SC stands for Server -> Client """
     def parse(self):
@@ -208,6 +209,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_write_single_coil()
             elif function == 6:
                 self.parse_write_single_register()
+            elif function == 15 or function == 16:
+                self.parse_write_multiple()
             else:
                 self.put_if_needed(1, "data",
                                    "Unknown function: {}".format(data[1].data))
@@ -235,7 +238,7 @@ class Modbus_ADU_SC(Modbus_ADU):
                                "Function 2: Read Discrete Inputs")
 
         bytecount = self.data[2].data
-        self.minimum_length = 5 + bytecount # 3 before data, 2 crc
+        self.minimum_length = 5 + bytecount  # 3 before data, 2 crc
         self.put_if_needed(2, "data",
                            "Byte count: {}".format(bytecount))
 
@@ -255,9 +258,8 @@ class Modbus_ADU_SC(Modbus_ADU):
             self.put_if_needed(1, "function",
                                "Function 4: Read Input Registers")
 
-
         bytecount = self.data[2].data
-        self.minimum_length = 5 + bytecount # 3 before data, 2 crc
+        self.minimum_length = 5 + bytecount  # 3 before data, 2 crc
         if bytecount % 2 == 0:
             self.put_if_needed(2, "data",
                                "Byte count: {}".format(bytecount))
@@ -270,11 +272,54 @@ class Modbus_ADU_SC(Modbus_ADU):
         # So registers never start when the length is even
         if len(data) % 2 == 1:
             register_value = self.half_word(-2)
-            self.put_last_byte("data", "0x{0:X} / {0}".format(register_value), bytecount + 2)
+            self.put_last_byte("data",
+                               "0x{0:X} / {0}".format(register_value),
+                               bytecount + 2)
         else:
             raise No_more_data
 
         self.check_CRC(bytecount + 4)
+
+    def parse_write_multiple(self):
+        """ Function 15 and 16 are almost the same, so we can parse them both
+        using one function """
+
+        function = self.data[1].data
+        if function == 15:
+            data_unit = "Coils"
+            max_outputs = 0x07B0
+            long_address_offset = 10001
+        elif function == 16:
+            data_unit = "Registers"
+            max_outputs = 0x007B
+            long_address_offset = 30001
+
+        self.put_if_needed(
+            1, "function",
+            "Function {}: Write Multiple {}".format(function, data_unit))
+
+        starting_address = self.half_word(2)
+        # Some instruction manuals use a long form name for addresses, this is
+        # listed here for convienience.
+        address_name = long_address_offset + starting_address
+        self.put_if_needed(
+            3, "starting-address",
+            "Start at address 0x{:X} / {:d}".format(starting_address,
+                                                    address_name))
+
+        quantity_of_outputs = self.half_word(4)
+        if quantity_of_outputs <= max_outputs:
+            self.put_if_needed(5, "data",
+                               "Write {} {}".format(quantity_of_outputs,
+                                                    data_unit))
+        else:
+            self.put_if_needed(
+                5, "data",
+                "Bad value: {} {}. Max is {}".format(quantity_of_outputs,
+                                                     data_unit, max_outputs))
+
+        self.check_CRC(7)
+
 
 class Modbus_ADU_CS(Modbus_ADU):
     """ CS stands for Client -> Server """
