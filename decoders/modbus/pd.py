@@ -160,7 +160,9 @@ class Modbus_ADU_SC(Modbus_ADU):
             self.put_if_needed(0, "server-id", message)
 
             function = data[1].data
-            if function == 3:
+            if function == 1:
+                self.parse_read_coils()
+            elif function == 3:
                 self.parse_read_holding_registers()
             else:
                 self.put_if_needed(1, "data",
@@ -176,6 +178,22 @@ class Modbus_ADU_SC(Modbus_ADU):
             # this is just a message saying we don't need to parse anymore this
             # round
             pass
+
+    def parse_read_coils(self):
+        data = self.data
+
+        self.put_if_needed(1, "function",
+                           "Function 1: Read Coils")
+
+        bytecount = self.data[2].data
+        self.minimum_length = 5 + bytecount # 3 before data, 2 crc
+        self.put_if_needed(2, "data",
+                           "Byte count: {}".format(bytecount))
+
+        # From here on out, we expect registers on 3 and 4, 5 and 6 etc
+        # So registers never start when the length is even
+        self.put_last_byte("data", "{:08b}", bytecount + 2)
+        self.check_CRC(bytecount + 4)
 
     def parse_read_holding_registers(self):
         data = self.data
