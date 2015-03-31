@@ -94,13 +94,13 @@ class Modbus_ADU:
                 return
             self.parent.puta(
                 data[self.last_byte_put].end, message_overflow,
-                self.annotation_prefix + "data",
+                self.annotation_prefix + "error",
                 "Message too short or not finished")
         if len(data) > 256:
             try:
                 self.put_if_needed(
                     len(data)-1,
-                    self.annotation_prefix + "data",
+                    self.annotation_prefix + "error",
                     "Modbus data frames are limited to 256 bytes")
             except No_more_data:
                 pass
@@ -155,7 +155,7 @@ class Modbus_ADU:
 
         address = self.half_word(2)
         self.put_if_needed(
-            3, "starting-address",
+            3, "address",
             "Address 0x{:X} / {:d}".format(address,
                                            address + 10000))
 
@@ -177,7 +177,7 @@ class Modbus_ADU:
 
         address = self.half_word(2)
         self.put_if_needed(
-            3, "starting-address",
+            3, "address",
             "Address 0x{:X} / {:d}".format(address,
                                            address + 30000))
 
@@ -212,14 +212,14 @@ class Modbus_ADU_SC(Modbus_ADU):
             elif function == 15 or function == 16:
                 self.parse_write_multiple()
             else:
-                self.put_if_needed(1, "data",
+                self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
-                self.put_last_byte("data", "Unknown function")
+                self.put_last_byte("error", "Unknown function")
 
             # if the message gets here without raising an exception, the
             # message goes on longer than it should
 
-            self.put_last_byte("data", "Message too long")
+            self.put_last_byte("error", "Message too long")
 
         except No_more_data:
             # this is just a message saying we don't need to parse anymore this
@@ -239,7 +239,7 @@ class Modbus_ADU_SC(Modbus_ADU):
 
         bytecount = self.data[2].data
         self.minimum_length = 5 + bytecount  # 3 before data, 2 crc
-        self.put_if_needed(2, "data",
+        self.put_if_needed(2, "length",
                            "Byte count: {}".format(bytecount))
 
         # From here on out, we expect registers on 3 and 4, 5 and 6 etc
@@ -261,11 +261,11 @@ class Modbus_ADU_SC(Modbus_ADU):
         bytecount = self.data[2].data
         self.minimum_length = 5 + bytecount  # 3 before data, 2 crc
         if bytecount % 2 == 0:
-            self.put_if_needed(2, "data",
+            self.put_if_needed(2, "length",
                                "Byte count: {}".format(bytecount))
         else:
             self.put_if_needed(
-                2, "data",
+                2, "error",
                 "Error: Odd byte count ({})".format(bytecount))
 
         # From here on out, we expect registers on 3 and 4, 5 and 6 etc
@@ -303,7 +303,7 @@ class Modbus_ADU_SC(Modbus_ADU):
         # listed here for convienience.
         address_name = long_address_offset + starting_address
         self.put_if_needed(
-            3, "starting-address",
+            3, "address",
             "Start at address 0x{:X} / {:d}".format(starting_address,
                                                     address_name))
 
@@ -314,7 +314,7 @@ class Modbus_ADU_SC(Modbus_ADU):
                                                     data_unit))
         else:
             self.put_if_needed(
-                5, "data",
+                5, "error",
                 "Bad value: {} {}. Max is {}".format(quantity_of_outputs,
                                                      data_unit, max_outputs))
 
@@ -348,14 +348,14 @@ class Modbus_ADU_CS(Modbus_ADU):
             if function in {15, 16}:
                 self.parse_write_multiple()
             else:
-                self.put_if_needed(1, "data",
+                self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
-                self.put_last_byte("data", "Unknown function")
+                self.put_last_byte("error", "Unknown function")
 
             # if the message gets here without raising an exception, the
             # message goes on longer than it should
 
-            self.put_last_byte("data", "Message too long")
+            self.put_last_byte("error", "Message too long")
 
         except No_more_data:
             # this is just a message saying we don't need to parse anymore this
@@ -384,11 +384,11 @@ class Modbus_ADU_CS(Modbus_ADU):
         # Example: holding register 60 becomes 30061.
         address_name = 10000 * function + 1 + starting_address
         self.put_if_needed(
-            3, "starting-address",
+            3, "address",
             "Start at address 0x{:X} / {:d}".format(starting_address,
                                                     address_name))
 
-        self.put_if_needed(5, 'data',
+        self.put_if_needed(5, "length",
                            "Read {:d} units of data".format(self.half_word(4)))
         self.check_CRC(7)
 
@@ -432,7 +432,7 @@ class Modbus_ADU_CS(Modbus_ADU):
         # listed here for convienience.
         address_name = long_address_offset + starting_address
         self.put_if_needed(
-            3, "starting-address",
+            3, "address",
             "Start at address 0x{:X} / {:d}".format(starting_address,
                                                     address_name))
 
@@ -443,21 +443,21 @@ class Modbus_ADU_CS(Modbus_ADU):
                                                     data_unit))
         else:
             self.put_if_needed(
-                5, "data",
+                5, "error",
                 "Bad value: {} {}. Max is {}".format(quantity_of_outputs,
                                                      data_unit, max_outputs))
         proper_bytecount = ceil(quantity_of_outputs * ratio_bytes_data)
 
         bytecount = self.data[6].data
         if bytecount == proper_bytecount:
-            self.put_if_needed(6, "data", "Byte count: {}".format(bytecount))
+            self.put_if_needed(6, "length", "Byte count: {}".format(bytecount))
         else:
             self.put_if_needed(
-                6, "data",
+                6, "error",
                 "Bad byte count, is {}, should be {}".format(bytecount,
                                                              proper_bytecount))
 
-        self.put_last_byte('data', 'Data, value 0x{:X}', 6 + bytecount)
+        self.put_last_byte("error", 'Data, value 0x{:X}', 6 + bytecount)
 
         self.check_CRC(bytecount + 8)
 
@@ -470,11 +470,11 @@ class Modbus_ADU_CS(Modbus_ADU):
         self.minimum_length = 5 + bytecount
         # 1 for serverID, 1 for function, 1 for bytecount, 2 for CRC
         if 0x07 <= bytecount <= 0xF5:
-            self.put_if_needed(2, "data",
+            self.put_if_needed(2, "length",
                                "Request is {} bytes long".format(bytecount))
         else:
             self.put_if_needed(
-                2, "data",
+                2, "error",
                 "Request claims to be {} bytes long, legal values are between"
                 " 7 and 247".format(bytecount))
 
@@ -489,7 +489,7 @@ class Modbus_ADU_CS(Modbus_ADU):
                                        "Start sub-request")
                 else:
                     self.put_if_needed(
-                        current_byte, "data",
+                        current_byte, "error",
                         "First byte of subrequest should be 0x06")
             elif step == 1:
                 raise No_more_data
@@ -502,7 +502,7 @@ class Modbus_ADU_CS(Modbus_ADU):
             elif step == 4:
                 record_number = self.half_word(current_byte - 1)
                 self.put_if_needed(
-                    current_byte, "data",
+                    current_byte, "address",
                     "Read from record number {}".format(record_number))
                 # TODO: check if within range
             elif step == 5:
@@ -510,7 +510,7 @@ class Modbus_ADU_CS(Modbus_ADU):
             elif step == 6:
                 records_to_read = self.half_word(current_byte - 1)
                 self.put_if_needed(
-                    current_byte, "data",
+                    current_byte, "length",
                     "Read {} records".format(records_to_read))
         self.check_CRC()
 
@@ -525,27 +525,28 @@ class Decoder(srd.Decoder):
     inputs = ['uart']
     outputs = ['modbus']
     annotations = (
-        ('rx-Sc-server-id', ''),
-        ('rx-Sc-function', ''),
-        ('rx-Sc-crc', ''),
-        ('rx-Sc-starting-address', ''),
-        ('rx-Sc-data', ''),
-        ('rx-Cs-server-id', ''),
-        ('rx-Cs-function', ''),
-        ('rx-Cs-crc', ''),
-        ('rx-Cs-starting-address', ''),
-        ('rx-Cs-data', ''),
-        ('tx-server-id', ''),
-        ('tx-function', ''),
-        ('tx-crc', ''),
-        ('tx-starting-address', ''),
-        ('tx-data', ''),
+        ('Sc-server-id', ''),
+        ('Sc-function', ''),
+        ('Sc-crc', ''),
+        ('Sc-address', ''),
+        ('Sc-data', ''),
+        ('Sc-length', ''),
+        ('Sc-error', ''),
+        ('Cs-server-id', ''),
+        ('Cs-function', ''),
+        ('Cs-crc', ''),
+        ('Cs-address', ''),
+        ('Cs-data', ''),
+        ('Cs-length', ''),
+        ('Cs-error', ''),
     )
     annotation_rows = (
-        ('rx-cs', 'Rx data, client->server', (0, 1, 2, 3, 4)),
-        ('rx-sc', 'Rx data, server->client', (5, 6, 7, 8, 9)),
-        ('tx', 'Tx data, client->server', (10, 11, 12, 13, 14)),
+        ('sc', 'server->client', (0, 1, 2,  3,  4,  5, 6)),
+        ('cs', 'client->server', (7, 8, 9, 10, 11, 12, 13)),
     )
+    options = (
+        dict(id="TxRxSplit", desc="TxRx Split?", default="Seperate lines", values=("All on one line", "Seperate lines")),
+        )
 
     def __init__(self, **kwargs):
         self.ADURx = None
@@ -607,8 +608,8 @@ class Decoder(srd.Decoder):
         ptype, rxtx, pdata = data
 
         if rxtx == TX:
-            self.ADUTx = Modbus_ADU_CS(self, ss, TX, "tx-")
+            self.ADUTx = Modbus_ADU_CS(self, ss, TX, "Cs-")
         if rxtx == RX:
-            self.ADURx = Modbus_ADU_SC(self, ss, RX, "rx-Sc-")
+            self.ADURx = Modbus_ADU_SC(self, ss, RX, "Sc-")
 
         self.decode(ss, es, data)
