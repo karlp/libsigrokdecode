@@ -10,6 +10,9 @@ import sigrokdecode as srd
 RX = 0
 TX = 1
 
+SPLITTRUE = "Seperate lines"
+SPLITFALSE = "All on one line (Ignore Rx)"
+
 
 class No_more_data(Exception):
     """ This exception is a signal that we should stop parsing an ADU as there
@@ -43,6 +46,10 @@ class Modbus_ADU:
         # Any modbus message needs to be at least 4 long. The modbus function
         # may make this longer
         self.minimum_length = 4
+
+        # This variable is used by an external function to determine when the
+        # next frame should be started
+        self.startNewFrame = False
 
     def add_data(self, start, end, data):
         ptype, rxtx, pdata = data
@@ -545,12 +552,12 @@ class Decoder(srd.Decoder):
         ('cs', 'client->server', (7, 8, 9, 10, 11, 12, 13)),
     )
     options = (
-        dict(id="TxRxSplit", desc="TxRx Split?", default="Seperate lines", values=("All on one line", "Seperate lines")),
+        dict(id="TxRxSplit", desc="TxRx Split?", default=SPLITTRUE, values=(SPLITFALSE, SPLITTRUE)),
         )
 
     def __init__(self, **kwargs):
-        self.ADURx = None
-        self.ADUTx = None
+        self.ADUSc = None
+        self.ADUCs = None
 
         self.bitlength = None
 
@@ -561,9 +568,11 @@ class Decoder(srd.Decoder):
         ptype, rxtx, pdata = data
 
         if rxtx == TX:
-            self.decode_correct_ADU(ss, es, data, self.ADUTx)
-        if rxtx == RX:
-            self.decode_correct_ADU(ss, es, data, self.ADURx)
+            self.decode_ADU(ss, es, data, "Cs")
+        if rxtx == TX and self.options["TxRxSplit"] == SPLITFALSE:
+            self.decode_ADU(ss, es, data, "Sc")
+        if rxtx == RX and self.options["TxRxSplit"] == SPLITTRUE:
+            self.decode_ADU(ss, es, data, "Sc")
 
     def puta(self, start, end, annotation_channel_text, message):
         """ Put an annotation from start to end, with annotation_channel as a
@@ -573,7 +582,7 @@ class Decoder(srd.Decoder):
         self.put(start, end, self.out_ann,
                  [annotation_channel, [message]])
 
-    def decode_correct_ADU(self, ss, es, data, ADU):
+    def decode_ADU(self, ss, es, data, direction):
         ptype, rxtx, pdata = data
 
         # We need to know how long bits are before we can start decoding
@@ -584,9 +593,14 @@ class Decoder(srd.Decoder):
             else:
                 return
 
-        if ADU is None:
-            self.start_new_decode(ss, es, data)
-            return
+        if direction == "Sc":
+            if (self.ADUSc is None) or self.ADUSc.startNewFrame:
+                self.ADUSc = Modbus_ADU_SC(self, ss, TX, "Sc-")
+            ADU = self.ADUSc
+        if direction == "Cs":
+            if self.ADUCs is None or self.ADUCs.startNewFrame:
+                self.ADUCs = Modbus_ADU_CS(self, ss, TX, "Cs-")
+            ADU = self.ADUCs
 
         # According to the modbus spec, there should be 3.5 characters worth of
         # space between each message. But if within a message there is a length
@@ -602,14 +616,6 @@ class Decoder(srd.Decoder):
                 # extend errors for 3 bits after last byte, we can guarentee
                 # space
                 ADU.close(ADU.data[-1].end + self.bitlength * 3)
-            self.start_new_decode(ss, es, data)
 
-    def start_new_decode(self, ss, es, data):
-        ptype, rxtx, pdata = data
-
-        if rxtx == TX:
-            self.ADUTx = Modbus_ADU_CS(self, ss, TX, "Cs-")
-        if rxtx == RX:
-            self.ADURx = Modbus_ADU_SC(self, ss, RX, "Sc-")
-
-        self.decode(ss, es, data)
+            ADU.startNewFrame = True
+            self.decode_ADU(ss, es, data, direction)
