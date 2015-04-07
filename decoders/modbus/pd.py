@@ -218,6 +218,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_write_single_register()
             elif function == 7:
                 self.parse_read_exception_status()
+            elif function == 11:
+                self.parse_get_comm_event_counter()
             elif function == 15 or function == 16:
                 self.parse_write_multiple()
             elif function == 17:
@@ -299,6 +301,24 @@ class Modbus_ADU_SC(Modbus_ADU):
                            "Exception status: {:08b}".format(exception_status))
         self.check_CRC(4)
 
+    def parse_get_comm_event_counter(self):
+        self.put_if_needed(1, "function",
+                           "Function 11: Get Comm Event Counter")
+        
+        status = self.half_word(2)
+        if status == 0x0000:
+            self.put_if_needed(3, "data","Status: not busy")
+        elif status == 0xFFFF:
+            self.put_if_needed(3, "data","Status: busy")
+        else:
+            self_put_if_needed(3, "error", "Bad status: 0x{:04X}".format(status))
+
+        count  = self.half_word(4)
+        self.put_if_needed(5, "data",
+                           "Event Count: {}".format(count))
+        self.check_CRC(7)
+
+
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
         using one function """
@@ -365,7 +385,7 @@ class Modbus_ADU_SC(Modbus_ADU):
         elif run_indicator_status == 0xFF:
             self.put_if_needed(run_indicator_ref, "data", "Run Indicator status: On")
         else:
-            self.put_if_needed(run_indicator_ref, "error", "Bad Run Indicator status: 0x{:h}".format(run_indicator_status))
+            self.put_if_needed(run_indicator_ref, "error", "Bad Run Indicator status: 0x{:X}".format(run_indicator_status))
 
         self.check_CRC(run_indicator_ref + 2)
 
