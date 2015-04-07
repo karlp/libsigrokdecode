@@ -220,6 +220,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_read_exception_status()
             elif function == 15 or function == 16:
                 self.parse_write_multiple()
+            elif function == 17:
+                self.parse_report_slave_id()
             else:
                 self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
@@ -336,6 +338,36 @@ class Modbus_ADU_SC(Modbus_ADU):
                                                      data_unit, max_outputs))
 
         self.check_CRC(7)
+
+    def parse_report_slave_id(self):
+        # Buildup of this function:
+        # 1 byte slaveID
+        # 1 byte function (17)
+        # 1 byte bytecount (counts for bytecount)
+        # bytecount - 2 bytes of device specific data
+        # 1 byte Run Indicator Status (counts for bytecount)
+        # 2 bytes of CRC
+        data = self.data
+        self.put_if_needed(1, "function",
+                           "Function 17: Report Slave ID")
+
+        bytecount = data[2].data
+        self.put_if_needed(2, "length",
+                           "Data is {} bytes long".format(bytecount))
+
+        if len(data) < 2 + bytecount:
+            self.put_last_byte("data", "Device specific data: {}".format(data[-1].data))
+
+        run_indicator_ref = 2 + bytecount - 1
+        run_indicator_status = data[run_indicator_ref].data
+        if run_indicator_status == 0x00:
+            self.put_if_needed(run_indicator_ref, "data", "Run Indicator status: Off")
+        elif run_indicator_status == 0xFF:
+            self.put_if_needed(run_indicator_ref, "data", "Run Indicator status: On")
+        else:
+            self.put_if_needed(run_indicator_ref, "error", "Bad Run Indicator status: 0x{:h}".format(run_indicator_status))
+
+        self.check_CRC(run_indicator_ref + 2)
 
 
 class Modbus_ADU_CS(Modbus_ADU):
