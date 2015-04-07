@@ -216,6 +216,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_write_single_coil()
             elif function == 6:
                 self.parse_write_single_register()
+            elif function == 7:
+                self.parse_read_exception_status()
             elif function == 15 or function == 16:
                 self.parse_write_multiple()
             else:
@@ -286,6 +288,14 @@ class Modbus_ADU_SC(Modbus_ADU):
             raise No_more_data
 
         self.check_CRC(bytecount + 4)
+
+    def parse_read_exception_status(self):
+        self.put_if_needed(1, "function",
+                           "Function 7: Read Exception Status")
+        exception_status = self.data[2].data
+        self.put_if_needed(2, "data",
+                           "Exception status: {:08b}".format(exception_status))
+        self.check_CRC(4)
 
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
@@ -401,7 +411,7 @@ class Modbus_ADU_CS(Modbus_ADU):
 
     def parse_single_byte_request(self):
         """ Some MODBUS functions have no arguments, this parses those """
-        function = self.data[1]
+        function = self.data[1].data
         function_name = {7: "Read Exception Status",
                          11: "Get Comm Event Counter",
                          12: "Get Comm Event Log",
