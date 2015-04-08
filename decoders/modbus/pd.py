@@ -10,9 +10,6 @@ import sigrokdecode as srd
 RX = 0
 TX = 1
 
-SPLITTRUE = "Seperate lines"
-SPLITFALSE = "All on one line (Ignore Rx)"
-
 
 class No_more_data(Exception):
     """ This exception is a signal that we should stop parsing an ADU as there
@@ -304,20 +301,20 @@ class Modbus_ADU_SC(Modbus_ADU):
     def parse_get_comm_event_counter(self):
         self.put_if_needed(1, "function",
                            "Function 11: Get Comm Event Counter")
-        
+
         status = self.half_word(2)
         if status == 0x0000:
-            self.put_if_needed(3, "data","Status: not busy")
+            self.put_if_needed(3, "data", "Status: not busy")
         elif status == 0xFFFF:
-            self.put_if_needed(3, "data","Status: busy")
+            self.put_if_needed(3, "data", "Status: busy")
         else:
-            self_put_if_needed(3, "error", "Bad status: 0x{:04X}".format(status))
+            self.put_if_needed(3, "error",
+                               "Bad status: 0x{:04X}".format(status))
 
-        count  = self.half_word(4)
+        count = self.half_word(4)
         self.put_if_needed(5, "data",
                            "Event Count: {}".format(count))
         self.check_CRC(7)
-
 
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
@@ -376,16 +373,24 @@ class Modbus_ADU_SC(Modbus_ADU):
                            "Data is {} bytes long".format(bytecount))
 
         if len(data) < 2 + bytecount:
-            self.put_last_byte("data", "Device specific data: {}".format(data[-1].data))
+            self.put_last_byte(
+                "data",
+                "Device specific data: {}".format(data[-1].data))
 
         run_indicator_ref = 2 + bytecount - 1
         run_indicator_status = data[run_indicator_ref].data
         if run_indicator_status == 0x00:
-            self.put_if_needed(run_indicator_ref, "data", "Run Indicator status: Off")
+            self.put_if_needed(run_indicator_ref, "data",
+                               "Run Indicator status: Off")
         elif run_indicator_status == 0xFF:
-            self.put_if_needed(run_indicator_ref, "data", "Run Indicator status: On")
+            self.put_if_needed(run_indicator_ref, "data",
+                               "Run Indicator status: On")
         else:
-            self.put_if_needed(run_indicator_ref, "error", "Bad Run Indicator status: 0x{:X}".format(run_indicator_status))
+            self.put_if_needed(
+                run_indicator_ref, "error",
+                "Bad Run Indicator status: 0x{:X}".format(
+                    run_indicator_status)
+                )
 
         self.check_CRC(run_indicator_ref + 2)
 
@@ -614,7 +619,11 @@ class Decoder(srd.Decoder):
         ('cs', 'client->server', (7, 8, 9, 10, 11, 12, 13)),
     )
     options = (
-        dict(id="TxRxSplit", desc="TxRx Split?", default=SPLITTRUE, values=(SPLITFALSE, SPLITTRUE)),
+        dict(
+            id="ScChannel",
+            desc="Channel used for Server -> Client communication",
+            default="RX",
+            values=("RX", "TX")),
         )
 
     def __init__(self, **kwargs):
@@ -631,9 +640,9 @@ class Decoder(srd.Decoder):
 
         if rxtx == TX:
             self.decode_ADU(ss, es, data, "Cs")
-        if rxtx == TX and self.options["TxRxSplit"] == SPLITFALSE:
+        if rxtx == TX and self.options["ScChannel"] == "TX":
             self.decode_ADU(ss, es, data, "Sc")
-        if rxtx == RX and self.options["TxRxSplit"] == SPLITTRUE:
+        if rxtx == RX and self.options["ScChannel"] == "RX":
             self.decode_ADU(ss, es, data, "Sc")
 
     def puta(self, start, end, annotation_channel_text, message):
