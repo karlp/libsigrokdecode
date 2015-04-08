@@ -217,6 +217,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_read_exception_status()
             elif function == 11:
                 self.parse_get_comm_event_counter()
+            elif function == 12:
+                self.parse_get_comm_event_log()
             elif function == 15 or function == 16:
                 self.parse_write_multiple()
             elif function == 17:
@@ -315,6 +317,37 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.put_if_needed(5, "data",
                            "Event Count: {}".format(count))
         self.check_CRC(7)
+
+    def parse_get_comm_event_log(self):
+        self.put_if_needed(1, "function",
+                           "Function 12: Get Comm Event Log")
+
+        data = self.data
+
+        bytecount = data[2].data
+        self.put_if_needed(2, "length", "Bytecount: {}".format(bytecount))
+
+        status = self.half_word(3)
+        if status == 0x0000:
+            self.put_if_needed(4, "data", "Status: not busy")
+        elif status == 0xFFFF:
+            self.put_if_needed(4, "data", "Status: busy")
+        else:
+            self.put_if_needed(4, "error",
+                               "Bad status: 0x{:04X}".format(status))
+
+        event_count = self.half_word(5)
+        self.put_if_needed(6, "data",
+                           "Event Count: {}".format(event_count))
+
+        message_count = self.half_word(7)
+        self.put_if_needed(8, "data",
+                           "Message Count: {}".format(message_count))
+
+        self.put_last_byte("data", "Event: 0x{:02X}".format(data[-1].data),
+                           bytecount + 2)
+
+        self.check_CRC(bytecount + 4)
 
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
