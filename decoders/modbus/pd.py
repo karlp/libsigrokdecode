@@ -228,6 +228,34 @@ class Modbus_ADU:
 
         self.check_CRC(7)
 
+    def parse_mask_write_register(self):
+        """ Parse function 22, Mask Write Register """
+        self.minimum_length = max(self.minimum_length, 10)
+        data = self.data
+
+        self.put_if_needed(1, "function", "Function 22: Mask Write Register")
+
+        address = self.half_word(2)
+        self.put_if_needed(
+            3, "address",
+            "Address 0x{:X} / {:d}".format(address, address + 30001))
+
+        self.half_word(4)  # To make sure we don't oveflow data
+        and_mask_1 = data[4].data
+        and_mask_2 = data[5].data
+        self.put_if_needed(5, "data",
+                           "AND mask: {:08b} {:08b}".format(and_mask_1,
+                                                            and_mask_2))
+
+        self.half_word(6)  # To make sure we don't oveflow data
+        or_mask_1 = data[6].data
+        or_mask_2 = data[7].data
+        self.put_if_needed(7, "data",
+                           "OR mask: {:08b} {:08b}".format(or_mask_1,
+                                                           or_mask_2))
+
+        self.check_CRC(9)
+
 
 class Modbus_ADU_SC(Modbus_ADU):
     """ SC stands for Server -> Client """
@@ -262,6 +290,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_write_multiple()
             elif function == 17:
                 self.parse_report_slave_id()
+            elif function == 22:
+                self.parse_mask_write_register()
             else:
                 self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
@@ -495,6 +525,8 @@ class Modbus_ADU_CS(Modbus_ADU):
                 self.parse_diagnostics()
             if function in {15, 16}:
                 self.parse_write_multiple()
+            elif function == 22:
+                self.parse_mask_write_register()
             else:
                 self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
