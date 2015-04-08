@@ -191,6 +191,43 @@ class Modbus_ADU:
 
         self.check_CRC(7)
 
+    def parse_diagnostics(self):
+        """ Parse function 8, diagnostics. This function has many subfunctions,
+        but they are all more or less the same """
+        self.minimum_length = max(self.minimum_length, 8)
+
+        self.put_if_needed(1, "function", "Function 8: Diagnostics")
+
+        diag_subfunction = {
+            0: "Return Query data",
+            1: "Restart Communications Option",
+            2: "Return Diagnostics Register",
+            3: "Change ASCII Input Delimiter",
+            4: "Force Listen Only Mode",
+            10: "Clear Counters and Diagnostic Register",
+            11: "Return Bus Message Count",
+            12: "Return Bus Communication Error Count",
+            13: "Return Bus Exception Error Count",
+            14: "Return Slave Message Count",
+            15: "Return Slave No Response Count",
+            16: "Return Slave NAK Count",
+            17: "Return Slave Busy Count",
+            18: "Return Bus Character Overrun Count",
+            20: "Return Overrun Counter and Flag",
+        }
+        subfunction = self.half_word(2)
+        subfunction_name = diag_subfunction.get(subfunction,
+                                                "Reserved subfunction")
+        self.put_if_needed(3, "data",
+                           "Subfunction {}: {}".format(subfunction,
+                                                       subfunction_name))
+
+        diagnostic_data = self.half_word(4)
+        self.put_if_needed(
+            5, "data", "Data Field: {0} / 0x{0:04X}".format(diagnostic_data))
+
+        self.check_CRC(7)
+
 
 class Modbus_ADU_SC(Modbus_ADU):
     """ SC stands for Server -> Client """
@@ -215,6 +252,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_write_single_register()
             elif function == 7:
                 self.parse_read_exception_status()
+            elif function == 8:
+                self.parse_diagnostics()
             elif function == 11:
                 self.parse_get_comm_event_counter()
             elif function == 12:
@@ -452,6 +491,8 @@ class Modbus_ADU_CS(Modbus_ADU):
                 self.parse_write_single_register()
             if function in {7, 11, 12, 17}:
                 self.parse_single_byte_request()
+            elif function == 8:
+                self.parse_diagnostics()
             if function in {15, 16}:
                 self.parse_write_multiple()
             else:
@@ -511,8 +552,6 @@ class Modbus_ADU_CS(Modbus_ADU):
                            "Function {}: {}".format(function, function_name))
 
         self.check_CRC(3)
-
-    # TODO: parse function 8. Spec is not clear, needs testing.
 
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
