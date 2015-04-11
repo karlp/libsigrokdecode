@@ -467,9 +467,10 @@ class Modbus_ADU_SC(Modbus_ADU):
         # Buildup of this function:
         # 1 byte slaveID
         # 1 byte function (17)
-        # 1 byte bytecount (counts for bytecount)
-        # bytecount - 2 bytes of device specific data
+        # 1 byte bytecount
+        # 1 byte slaveID (counts for bytecount)
         # 1 byte Run Indicator Status (counts for bytecount)
+        # bytecount - 2 bytes of device specific data (counts for bytecount)
         # 2 bytes of CRC
         data = self.data
         self.put_if_needed(1, "function",
@@ -479,27 +480,27 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.put_if_needed(2, "length",
                            "Data is {} bytes long".format(bytecount))
 
-        if len(data) < 2 + bytecount:
-            self.put_last_byte(
-                "data",
-                "Device specific data: {}".format(data[-1].data))
+        self.put_if_needed(3, "data", "SlaveID: {}".format(data[3].data))
 
-        run_indicator_ref = 2 + bytecount - 1
-        run_indicator_status = data[run_indicator_ref].data
+        run_indicator_status = data[4].data
         if run_indicator_status == 0x00:
-            self.put_if_needed(run_indicator_ref, "data",
+            self.put_if_needed(4, "data",
                                "Run Indicator status: Off")
         elif run_indicator_status == 0xFF:
-            self.put_if_needed(run_indicator_ref, "data",
+            self.put_if_needed(4, "data",
                                "Run Indicator status: On")
         else:
             self.put_if_needed(
-                run_indicator_ref, "error",
+                4, "error",
                 "Bad Run Indicator status: 0x{:X}".format(
-                    run_indicator_status)
-                )
+                    run_indicator_status))
 
-        self.check_CRC(run_indicator_ref + 2)
+        self.put_last_byte(
+                "data",
+                "Device specific data: {}".format(data[-1].data),
+                2 + bytecount)
+
+        self.check_CRC(4 + bytecount)
 
     def parse_error(self):
         functioncode = self.data[1].data - 0x80
