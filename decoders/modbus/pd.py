@@ -272,7 +272,7 @@ class Modbus_ADU_SC(Modbus_ADU):
             function = data[1].data
             if function == 1 or function == 2:
                 self.parse_read_bits()
-            elif function == 3 or function == 4:
+            elif function == 3 or function == 4 or function == 23:
                 self.parse_read_registers()
             elif function == 5:
                 self.parse_write_single_coil()
@@ -335,9 +335,12 @@ class Modbus_ADU_SC(Modbus_ADU):
         if function == 3:
             self.put_if_needed(1, "function",
                                "Function 3: Read Holding Registers")
-        else:
+        elif function == 4:
             self.put_if_needed(1, "function",
                                "Function 4: Read Input Registers")
+        elif function == 23:
+            self.put_if_needed(1, "function",
+                               "Function 23: Read/Write Multiple Registers")
 
         bytecount = self.data[2].data
         self.minimum_length = 5 + bytecount  # 3 before data, 2 crc
@@ -354,7 +357,7 @@ class Modbus_ADU_SC(Modbus_ADU):
         if len(data) % 2 == 1:
             register_value = self.half_word(-2)
             self.put_last_byte("data",
-                               "0x{0:X} / {0}".format(register_value),
+                               "0x{0:04X} / {0}".format(register_value),
                                bytecount + 2)
         else:
             raise No_more_data
@@ -527,6 +530,8 @@ class Modbus_ADU_CS(Modbus_ADU):
                 self.parse_write_multiple()
             elif function == 22:
                 self.parse_mask_write_register()
+            elif function == 23:
+                self.parse_read_write_registers()
             else:
                 self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
@@ -691,6 +696,51 @@ class Modbus_ADU_CS(Modbus_ADU):
                     current_byte, "length",
                     "Read {} records".format(records_to_read))
         self.check_CRC()
+
+    def parse_read_write_registers(self):
+        """ Parse function 23: Read/Write multiple registers """
+        self.minimum_length = max(self.minimum_length, 13)
+
+        self.put_if_needed(1, "function",
+                           "Function 23: Read/Write Multiple Registers")
+
+        starting_address = self.half_word(2)
+        # Some instruction manuals use a long form name for addresses, this is
+        # listed here for convienience.
+        # Example: holding register 60 becomes 30061.
+        address_name = 30001 + starting_address
+        self.put_if_needed(
+            3, "address",
+            "Read starting at address 0x{:X} / {:d}".format(starting_address,
+                                                            address_name))
+
+        self.put_if_needed(5, "length",
+                           "Read {:d} units of data".format(self.half_word(4)))
+
+        starting_address = self.half_word(6)
+        self.put_if_needed(
+            7, "address",
+            "Write starting at address 0x{:X} / {:d}".format(starting_address,
+                                                             address_name))
+
+        quantity_of_outputs = self.half_word(8)
+        self.put_if_needed(9, "length",
+                           "Write {} registers".format(quantity_of_outputs))
+        proper_bytecount = quantity_of_outputs * 2
+
+        bytecount = self.data[10].data
+        if bytecount == proper_bytecount:
+            self.put_if_needed(10, "length",
+                               "Byte count: {}".format(bytecount))
+        else:
+            self.put_if_needed(
+                10, "error",
+                "Bad byte count, is {}, should be {}".format(bytecount,
+                                                             proper_bytecount))
+
+        self.put_last_byte("data", 'Data, value 0x{:02X}', 10 + bytecount)
+
+        self.check_CRC(bytecount + 12)
 
 
 class Decoder(srd.Decoder):
