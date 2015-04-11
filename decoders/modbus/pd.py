@@ -292,6 +292,8 @@ class Modbus_ADU_SC(Modbus_ADU):
                 self.parse_report_slave_id()
             elif function == 22:
                 self.parse_mask_write_register()
+            elif function > 0x80:
+                self.parse_error()
             else:
                 self.put_if_needed(1, "error",
                                    "Unknown function: {}".format(data[1].data))
@@ -498,6 +500,53 @@ class Modbus_ADU_SC(Modbus_ADU):
                 )
 
         self.check_CRC(run_indicator_ref + 2)
+
+    def parse_error(self):
+        functioncode = self.data[1].data - 0x80
+
+        functions = {
+            1: "Read Coils",
+            2: "Read Discrete Inputs",
+            3: "Read Holding Registers",
+            4: "Read Input Registers",
+            5: "Write Single Coil",
+            6: "Write Single Register",
+            7: "Read Exception Status",
+            8: "Diagnostic",
+            11: "Get Com Event Counter",
+            12: "Get Com Event Log",
+            15: "Write Multiple Coils",
+            16: "Write Multiple Registers",
+            17: "Report Slave ID",
+            20: "Read File Record",
+            21: "Write File Record",
+            22: "Mask Write Register",
+            23: "Read/Write Multiple Registers",
+            24: "Read FIFO Queue",
+            43: "Read Device Identification/Encapsulated Interface Transport",
+        }
+        functionname = "{}: {}".format(
+            functioncode,
+            functions.get(functioncode, "Unknown function"))
+        self.put_if_needed(1, "function",
+                           "Error for function {}".format(functionname))
+
+        error = self.data[2].data
+        errorcodes = {
+            1: "Illegal Function",
+            2: "Illegal Data Address",
+            3: "Illegal Data Value",
+            4: "Slave Device Failure",
+            5: "Acknowledge",
+            6: "Slave Device Busy",
+            8: "Memory Parity Error",
+            10: "Gateway Path Unavailable",
+            11: "Gateway Target Device failed to respond",
+        }
+        errorname = "{}: {}".format(error,
+                                    errorcodes.get(error, "Unknown"))
+        self.put_if_needed(2, "data", "Error {}".format(errorname))
+        self.check_CRC(4)
 
 
 class Modbus_ADU_CS(Modbus_ADU):
