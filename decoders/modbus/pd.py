@@ -621,7 +621,7 @@ class Modbus_ADU_CS(Modbus_ADU):
 
         quantity_of_outputs = self.half_word(4)
         if quantity_of_outputs <= max_outputs:
-            self.put_if_needed(5, "data",
+            self.put_if_needed(5, "length",
                                "Write {} {}".format(quantity_of_outputs,
                                                     data_unit))
         else:
@@ -640,7 +640,7 @@ class Modbus_ADU_CS(Modbus_ADU):
                 "Bad byte count, is {}, should be {}".format(bytecount,
                                                              proper_bytecount))
 
-        self.put_last_byte("error", 'Data, value 0x{:X}', 6 + bytecount)
+        self.put_last_byte("data", 'Value 0x{:X}', 6 + bytecount)
 
         self.check_CRC(bytecount + 8)
 
