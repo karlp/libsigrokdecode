@@ -289,7 +289,7 @@ class Modbus_ADU_SC(Modbus_ADU):
             elif function == 15 or function == 16:
                 self.parse_write_multiple()
             elif function == 17:
-                self.parse_report_slave_id()
+                self.parse_report_server_id()
             elif function == 22:
                 self.parse_mask_write_register()
             elif function > 0x80:
@@ -463,24 +463,24 @@ class Modbus_ADU_SC(Modbus_ADU):
 
         self.check_CRC(7)
 
-    def parse_report_slave_id(self):
+    def parse_report_server_id(self):
         # Buildup of this function:
-        # 1 byte slaveID
+        # 1 byte serverID
         # 1 byte function (17)
         # 1 byte bytecount
-        # 1 byte slaveID (counts for bytecount)
+        # 1 byte serverID (counts for bytecount)
         # 1 byte Run Indicator Status (counts for bytecount)
         # bytecount - 2 bytes of device specific data (counts for bytecount)
         # 2 bytes of CRC
         data = self.data
         self.put_if_needed(1, "function",
-                           "Function 17: Report Slave ID")
+                           "Function 17: Report Server ID")
 
         bytecount = data[2].data
         self.put_if_needed(2, "length",
                            "Data is {} bytes long".format(bytecount))
 
-        self.put_if_needed(3, "data", "SlaveID: {}".format(data[3].data))
+        self.put_if_needed(3, "data", "serverID: {}".format(data[3].data))
 
         run_indicator_status = data[4].data
         if run_indicator_status == 0x00:
@@ -497,7 +497,8 @@ class Modbus_ADU_SC(Modbus_ADU):
 
         self.put_last_byte(
                 "data",
-                "Device specific data: {}".format(data[-1].data),
+                "Device specific data: {}, '{}'".format(data[-1].data,
+                                                        chr(data[-1].data)),
                 2 + bytecount)
 
         self.check_CRC(4 + bytecount)
