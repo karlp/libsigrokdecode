@@ -153,7 +153,7 @@ class Modbus_ADU:
 
     def parse_write_single_coil(self):
         """ Parse function 5, write single coil """
-        self.minimum_length = max(self.minimum_length, 8)
+        self.minimum_length = 8
 
         self.put_if_needed(1, "function",  "Function 5: Write Single Coil")
 
@@ -175,7 +175,7 @@ class Modbus_ADU:
 
     def parse_write_single_register(self):
         """ Parse function 6, write single register """
-        self.minimum_length = max(self.minimum_length, 8)
+        self.minimum_length = 8
 
         self.put_if_needed(1, "function",  "Function 6: Write Single Register")
 
@@ -194,7 +194,7 @@ class Modbus_ADU:
     def parse_diagnostics(self):
         """ Parse function 8, diagnostics. This function has many subfunctions,
         but they are all more or less the same """
-        self.minimum_length = max(self.minimum_length, 8)
+        self.minimum_length = 8
 
         self.put_if_needed(1, "function", "Function 8: Diagnostics")
 
@@ -230,7 +230,7 @@ class Modbus_ADU:
 
     def parse_mask_write_register(self):
         """ Parse function 22, Mask Write Register """
-        self.minimum_length = max(self.minimum_length, 10)
+        self.minimum_length = 10
         data = self.data
 
         self.put_if_needed(1, "function", "Function 22: Mask Write Register")
@@ -310,6 +310,8 @@ class Modbus_ADU_SC(Modbus_ADU):
             pass
 
     def parse_read_bits(self):
+        self.mimumum_length = 5
+
         data = self.data
         function = data[1].data
 
@@ -331,6 +333,8 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.check_CRC(bytecount + 4)
 
     def parse_read_registers(self):
+        self.mimumum_length = 5
+
         data = self.data
 
         function = data[1].data
@@ -367,6 +371,8 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.check_CRC(bytecount + 4)
 
     def parse_read_exception_status(self):
+        self.mimumum_length = 5
+
         self.put_if_needed(1, "function",
                            "Function 7: Read Exception Status")
         exception_status = self.data[2].data
@@ -375,6 +381,8 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.check_CRC(4)
 
     def parse_get_comm_event_counter(self):
+        self.mimumum_length = 8
+
         self.put_if_needed(1, "function",
                            "Function 11: Get Comm Event Counter")
 
@@ -393,6 +401,7 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.check_CRC(7)
 
     def parse_get_comm_event_log(self):
+        self.mimumum_length = 11
         self.put_if_needed(1, "function",
                            "Function 12: Get Comm Event Log")
 
@@ -400,6 +409,9 @@ class Modbus_ADU_SC(Modbus_ADU):
 
         bytecount = data[2].data
         self.put_if_needed(2, "length", "Bytecount: {}".format(bytecount))
+        # The bytecount is the length of everything except the slaveID,
+        # function code, bytecount and CRC
+        self.mimumum_length = 5 + bytecount
 
         status = self.half_word(3)
         if status == 0x0000:
@@ -426,6 +438,7 @@ class Modbus_ADU_SC(Modbus_ADU):
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
         using one function """
+        self.mimumum_length = 8
 
         function = self.data[1].data
         if function == 15:
@@ -472,6 +485,7 @@ class Modbus_ADU_SC(Modbus_ADU):
         # 1 byte Run Indicator Status (counts for bytecount)
         # bytecount - 2 bytes of device specific data (counts for bytecount)
         # 2 bytes of CRC
+        self.mimumum_length = 7
         data = self.data
         self.put_if_needed(1, "function",
                            "Function 17: Report Server ID")
@@ -504,6 +518,7 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.check_CRC(4 + bytecount)
 
     def parse_error(self):
+        self.mimumum_length = 5
         functioncode = self.data[1].data - 0x80
 
         functions = {
@@ -602,7 +617,7 @@ class Modbus_ADU_CS(Modbus_ADU):
         """ Interpret a command to read x units of data starting at address, ie
         functions 1,2,3 and 4, and write the result to the annotations """
         data = self.data
-        self.minimum_length = max(self.minimum_length, 8)
+        self.minimum_length = 8
 
         function = data[1].data
         functionname = {1: "Read Coils",
@@ -644,6 +659,7 @@ class Modbus_ADU_CS(Modbus_ADU):
     def parse_write_multiple(self):
         """ Function 15 and 16 are almost the same, so we can parse them both
         using one function """
+        self.mimumum_length = 9
 
         function = self.data[1].data
         if function == 15:
@@ -690,6 +706,7 @@ class Modbus_ADU_CS(Modbus_ADU):
                 6, "error",
                 "Bad byte count, is {}, should be {}".format(bytecount,
                                                              proper_bytecount))
+        self.mimumum_length =  bytecount + 9
 
         self.put_last_byte("data", 'Value 0x{:X}', 6 + bytecount)
 
@@ -746,11 +763,11 @@ class Modbus_ADU_CS(Modbus_ADU):
                 self.put_if_needed(
                     current_byte, "length",
                     "Read {} records".format(records_to_read))
-        self.check_CRC()
+        self.check_CRC(4 + bytecount)
 
     def parse_read_write_registers(self):
         """ Parse function 23: Read/Write multiple registers """
-        self.minimum_length = max(self.minimum_length, 13)
+        self.minimum_length = 13 
 
         self.put_if_needed(1, "function",
                            "Function 23: Read/Write Multiple Registers")
@@ -788,6 +805,7 @@ class Modbus_ADU_CS(Modbus_ADU):
                 10, "error",
                 "Bad byte count, is {}, should be {}".format(bytecount,
                                                              proper_bytecount))
+        self.mimumum_length = bytecount + 13
 
         self.put_last_byte("data", 'Data, value 0x{:02X}', 10 + bytecount)
 
