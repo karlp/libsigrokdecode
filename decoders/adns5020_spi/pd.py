@@ -63,14 +63,26 @@ class Decoder(srd.Decoder):
         self.put(self.ss_cmd, self.es_cmd, self.out_ann, data)
 
     def decode(self, ss, es, data):
-        ptype, mosi, miso = data
-
-        # Only care about data packets.
-        if ptype != 'DATA':
+        if data[0] != "BITS":
+            print("decode received: ", [x for x in data])
+        ptype = data[0]
+        #ptype, mosi, miso = data
+        if ptype == "CS-CHANGE":
+            # if we transition low, mid stream, toss out our data and restart
+            cs_old, cs_new = data[1:]
+            if cs_old and cs_new == 0:
+                if len(self.mosi_bytes) not in [0, 2]:
+                    print("reseting stream, misplaced CS!")
+                    self.mosi_bytes = []
             return
+
+        # Don't care about anything else
+        if ptype != "DATA":
+            return
+        mosi, miso = data[1:]
+
         self.ss, self.es = ss, es
 
-        # TODO - look at CS? how to resync if it starts capture mid trace?
         if len(self.mosi_bytes) == 0:
             self.ss_cmd = ss
         self.mosi_bytes.append(mosi)
@@ -81,15 +93,15 @@ class Decoder(srd.Decoder):
             return
 
         self.es_cmd = es
-        cmd, data = self.mosi_bytes
+        cmd, arg = self.mosi_bytes
         write = cmd & 0x80
         reg = cmd & 0x7f
-        reg_desc = regs.get(cmd, "Reserved %#x" % cmd)
-        if cmd > 0x63:
+        reg_desc = regs.get(reg, "Reserved %#x" % reg)
+        if reg > 0x63:
             reg_desc = "Unknown"
         if write:
-            self.putx([0, ["%s=>%#x" % reg_desc, data]])
+            self.putx([0, ["%s=>%#x" % (reg_desc, arg)]])
         else:
-            self.putx([0, ["%s<=%d" % (reg_desc, data)]])
+            self.putx([0, ["%s<=%d" % (reg_desc, arg)]])
 
         self.mosi_bytes = []
