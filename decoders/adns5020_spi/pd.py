@@ -47,9 +47,16 @@ class Decoder(srd.Decoder):
     desc = 'Bidirectonal command and data over SPI like protocol.'
     license = 'gplv2'
     inputs = ['spi']
-    outputs = ['ands5020_spi']
+    outputs = ['adns5020_spi']
     annotations = (
-        ('adns5020', 'ADNS Command/Data'),
+        ("read", "Register read commands"),
+        ("write", "Register write commands"),
+        ("warning", "Warnings"),
+    )
+    annotation_rows = (
+        ("read", "Read", (0,)),
+        ("write", "Write", (1,)),
+        ("warnings", "Warnings", (2,)),
     )
 
     def __init__(self, **kwargs):
@@ -62,17 +69,18 @@ class Decoder(srd.Decoder):
     def putx(self, data):
         self.put(self.ss_cmd, self.es_cmd, self.out_ann, data)
 
+    def put_warn(self, pos, msg):
+        """Put data as an annotation of type mode"""
+        self.put(pos[0], pos[1], self.out_ann, [2, [msg]])
+
     def decode(self, ss, es, data):
-        if data[0] != "BITS":
-            print("decode received: ", [x for x in data])
         ptype = data[0]
-        #ptype, mosi, miso = data
         if ptype == "CS-CHANGE":
-            # if we transition low, mid stream, toss out our data and restart
+            # if we transition high mid stream, toss out our data and restart
             cs_old, cs_new = data[1:]
-            if cs_old and cs_new == 0:
+            if cs_old is not None and cs_old == 0 and cs_new == 1:
                 if len(self.mosi_bytes) not in [0, 2]:
-                    print("reseting stream, misplaced CS!")
+                    self.put_warn([self.ss_cmd, es], "Misplaced CS!")
                     self.mosi_bytes = []
             return
 
@@ -100,7 +108,7 @@ class Decoder(srd.Decoder):
         if reg > 0x63:
             reg_desc = "Unknown"
         if write:
-            self.putx([0, ["%s=>%#x" % (reg_desc, arg)]])
+            self.putx([1, ["%s=>%#x" % (reg_desc, arg)]])
         else:
             self.putx([0, ["%s<=%d" % (reg_desc, arg)]])
 
