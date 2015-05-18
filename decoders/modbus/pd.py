@@ -838,8 +838,9 @@ class Decoder(srd.Decoder):
         ('Cs-error', ''),
     )
     annotation_rows = (
-        ('sc', 'server->client', (0, 1, 2,  3,  4,  5, 6)),
-        ('cs', 'client->server', (7, 8, 9, 10, 11, 12, 13)),
+        ('sc', 'server->client', (0, 1, 2,  3,  4,  5)),
+        ('cs', 'client->server', (7, 8, 9, 10, 11, 12)),
+        ("errors", "Errors", (6,13)),
     )
     options = (
         dict(
