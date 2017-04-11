@@ -113,6 +113,10 @@ class Decoder(srd.Decoder):
             else:
                 print("Programming error, illegal decoder state!")
 
+            if not self.last_samplenum:
+                print("Init last and continue")
+                self.last_samplenum = self.samplenum
+                continue
             # assumes self.wait works as advertised
             samples = self.samplenum - self.last_samplenum
             t = samples / self.samplerate
