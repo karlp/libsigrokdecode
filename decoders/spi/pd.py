@@ -125,7 +125,7 @@ class Decoder(srd.Decoder):
 
     def __init__(self):
         self.samplerate = None
-        self.oldclk = 1
+        self.oldclk = None
         self.bitcount = 0
         self.misodata = self.mosidata = 0
         self.misobits = []
@@ -286,6 +286,10 @@ class Decoder(srd.Decoder):
         # We only care about samples if CS# is asserted.
         if self.have_cs and not self.cs_asserted(cs):
             return
+
+        # Initialize "oldclk" appropriately based on our real data
+        if self.oldclk is None:
+            self.oldclk = clk
 
         # Ignore sample if the clock pin hasn't changed.
         if clk == self.oldclk:
