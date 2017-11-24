@@ -304,14 +304,16 @@ class Modbus_ADU_SC(Modbus_ADU):
 
         # This try-catch is being used as flow control.
         try:
-            server_id = data[0].data
+            self.server_id = data[0].data
+            server_id = self.server_id
             if 1 <= server_id <= 247:
-                message = 'Slave ID: {}'.format(server_id)
+                message = 'Slave ID: {:#x}'.format(server_id)
             else:
-                message = 'Slave ID {} is invalid'
+                message = 'Slave ID {:#x} is invalid'.format(server_id)
             self.puti(0, 'server-id', message)
 
-            function = data[1].data
+            self.function = data[1].data
+            function = self.function
             if function == 1 or function == 2:
                 self.parse_read_bits()
             elif function == 3 or function == 4 or function == 23:
@@ -578,6 +580,14 @@ class Modbus_ADU_SC(Modbus_ADU):
         self.puti(2, 'data', 'Error {}'.format(errorname))
         self.check_crc(4)
 
+    def export_obj(self):
+        # Returns a "simple" version of ourselves, suitable for feeding to higher layers
+        return {
+            "server_id": self.server_id,
+            "function": self.function,
+            "rawbytes": [x.data for x in self.data],
+        }
+
 class Modbus_ADU_CS(Modbus_ADU):
     '''CS stands for Client -> Server.'''
     def parse(self):
@@ -586,17 +596,19 @@ class Modbus_ADU_CS(Modbus_ADU):
 
         # This try-catch is being used as flow control.
         try:
-            server_id = data[0].data
+            self.server_id = data[0].data
+            server_id = self.server_id
             message = ''
             if server_id == 0:
                 message = 'Broadcast message'
             elif 1 <= server_id <= 247:
-                message = 'Slave ID: {}'.format(server_id)
+                message = 'Slave ID: {:#x}'.format(server_id)
             elif 248 <= server_id <= 255:
-                message = 'Slave ID: {} (reserved address)'.format(server_id)
+                message = 'Slave ID: {:#x} (reserved address)'.format(server_id)
             self.puti(0, 'server-id', message)
 
-            function = data[1].data
+            self.function = data[1].data
+            function = self.function
             if function >= 1 and function <= 4:
                 self.parse_read_data_command()
             if function == 5:
@@ -810,6 +822,14 @@ class Modbus_ADU_CS(Modbus_ADU):
 
         self.check_crc(bytecount + 12)
 
+    def export_obj(self):
+        # Returns a "simple" version of ourselves, suitable for feeding to higher layers
+        return {
+            "server_id": self.server_id,
+            "function": self.function,
+            "rawbytes": [x.data for x in self.data],
+        }
+
 class Decoder(srd.Decoder):
     api_version = 3
     id = 'modbus'
@@ -859,6 +879,7 @@ class Decoder(srd.Decoder):
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
+        self.out_python = self.register(srd.OUTPUT_PYTHON)
 
     def puta(self, start, end, ann_str, message):
         '''Put an annotation from start to end, with ann as a
@@ -912,6 +933,8 @@ class Decoder(srd.Decoder):
             if len(ADU.data) > 0:
                 # Extend errors for 3 bits after last byte, we can guarantee
                 # space.
+                self.put(ADU.data[0].start, ADU.data[-1].end, self.out_python,
+                    [direction, ADU.export_obj()])
                 ADU.close(ADU.data[-1].end + self.bitlength * 3)
 
             ADU.startNewFrame = True
